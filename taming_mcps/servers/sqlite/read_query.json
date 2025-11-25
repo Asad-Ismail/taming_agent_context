@@ -1,0 +1,21 @@
+{
+  "name": "read_query",
+  "title": null,
+  "description": "Execute a SELECT query on the SQLite database",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "SELECT SQL query to execute"
+      }
+    },
+    "required": [
+      "query"
+    ]
+  },
+  "outputSchema": null,
+  "icons": null,
+  "annotations": null,
+  "meta": null
+}

@@ -1,0 +1,13 @@
+{
+  "name": "list_tables",
+  "title": null,
+  "description": "List all tables in the SQLite database",
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  },
+  "outputSchema": null,
+  "icons": null,
+  "annotations": null,
+  "meta": null
+}

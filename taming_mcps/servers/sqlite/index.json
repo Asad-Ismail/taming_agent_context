@@ -1,0 +1,12 @@
+{
+  "server_name": "sqlite",
+  "description": "Official tools for sqlite.",
+  "tools": [
+    "read_query",
+    "write_query",
+    "create_table",
+    "list_tables",
+    "describe_table",
+    "append_insight"
+  ]
+}
