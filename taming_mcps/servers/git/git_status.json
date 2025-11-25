@@ -1,0 +1,22 @@
+{
+  "name": "git_status",
+  "title": null,
+  "description": "Shows the working tree status",
+  "inputSchema": {
+    "properties": {
+      "repo_path": {
+        "title": "Repo Path",
+        "type": "string"
+      }
+    },
+    "required": [
+      "repo_path"
+    ],
+    "title": "GitStatus",
+    "type": "object"
+  },
+  "outputSchema": null,
+  "icons": null,
+  "annotations": null,
+  "meta": null
+}
