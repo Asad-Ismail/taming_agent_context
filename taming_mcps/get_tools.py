@@ -13,7 +13,7 @@ DB_FILE = "temp_schema.db"
 # Use parent directory as Git repo (current folder might be a subdirectory)
 GIT_REPO = os.path.abspath(os.path.join(os.getcwd(), ".."))
 
-# --- PHASE 1: BUILD THE REGISTRY FROM LIVE SERVERS ---
+# ---  BUILD THE REGISTRY FROM LIVE SERVERS ---
 
 async def fetch_and_save_server_tools(server_name, command, args, env=None):
     """
@@ -25,7 +25,7 @@ async def fetch_and_save_server_tools(server_name, command, args, env=None):
         shutil.rmtree(server_dir)
     os.makedirs(server_dir)
     
-    print(f"📥 Connecting to live '{server_name}' server via uvx...")
+    print(f" Connecting to live '{server_name}' server...")
     
     server_params = StdioServerParameters(
         command=command,
@@ -76,24 +76,19 @@ async def build_registry():
     # We create a temp DB so the server starts successfully
     conn = sqlite3.connect(DB_FILE)
     conn.close()
-    await fetch_and_save_server_tools("sqlite", "uvx", ["mcp-server-sqlite", "--db-path", DB_FILE])
 
-    # 2. Filesystem (File Tools) - npm package via npx
-    # Pass directories as positional args (not flags)
-    await fetch_and_save_server_tools("filesystem", "npx", ["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()])
+    await asyncio.gather(
+    fetch_and_save_server_tools("sqlite", "uvx", ["mcp-server-sqlite", "--db-path", DB_FILE]),
+    fetch_and_save_server_tools("filesystem", "npx", ["-y", "@modelcontextprotocol/server-filesystem", os.getcwd()]),
+    fetch_and_save_server_tools("git", "uvx", ["mcp-server-git", "--repository", GIT_REPO]),
+    fetch_and_save_server_tools("time", "uvx", ["mcp-server-time"]))
 
-    # 3. Git (Source Control Tools) - Python package via uvx
-    # This gives us real 'git_status', 'git_commit', 'git_diff' tools
-    await fetch_and_save_server_tools("git", "uvx", ["mcp-server-git", "--repository", GIT_REPO])
-
-    # 4. Time (Utility Tools) - Python package via uvx
-    await fetch_and_save_server_tools("time", "uvx", ["mcp-server-time"])
 
     # Cleanup temp file
     if os.path.exists(DB_FILE):
         os.remove(DB_FILE)
 
-    print("\n✅ Registry Built! Folder Structure:")
+    print("\n Registry Built! Folder Structure:")
     for root, dirs, files in os.walk(REGISTRY_ROOT):
         level = root.replace(REGISTRY_ROOT, '').count(os.sep)
         indent = ' ' * 4 * (level)
@@ -103,7 +98,7 @@ async def build_registry():
         if len(files) > 3:
             print(f"{indent}    ... ({len(files)-3} more)")
 
-# --- PHASE 2: THE DISCOVERY AGENT ---
+# --- THE DISCOVERY AGENT ---
 
 def count_tokens(text):
     return len(str(text)) / 4
@@ -148,12 +143,15 @@ async def run_discovery_agent():
             # In a real agent loop, the LLM would pick this file based on the name
             tool_path = os.path.join(target_path, "get_current_time.json")
             print(f"\n👉 Step 3: Agent reading tool def '{tool_path}'...")
-            read_tool = await session.call_tool("read_file", arguments={"path": tool_path})
             
-            tool_content = str(read_tool.content)
-            total_tokens += count_tokens(tool_content)
+            # Just read the file directly from disk for demonstration
+            with open(tool_path, 'r') as f:
+                tool_text = f.read()
             
-            print(f"✅ Loaded Tool Schema: {json.loads(read_tool.content[0].text)['name']}")
+            total_tokens += count_tokens(tool_text)
+            
+            tool_data = json.loads(tool_text)
+            print(f"✅ Loaded Tool Schema: {tool_data['name']}")
             print(f"✅ FINAL CONTEXT LOAD: ~{int(total_tokens)} tokens")
             
             # --- COMPARISON ---
