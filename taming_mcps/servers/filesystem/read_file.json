@@ -1,0 +1,26 @@
+{
+  "name": "read_file",
+  "title": "Read File (Deprecated)",
+  "description": "Read the complete contents of a file as text. DEPRECATED: Use read_text_file instead.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false,
+    "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "icons": null,
+  "annotations": {
+    "title": null,
+    "readOnlyHint": true,
+    "destructiveHint": null,
+    "idempotentHint": null,
+    "openWorldHint": null
+  },
+  "meta": null
+}

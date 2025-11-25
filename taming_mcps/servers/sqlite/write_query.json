@@ -1,0 +1,21 @@
+{
+  "name": "write_query",
+  "title": null,
+  "description": "Execute an INSERT, UPDATE, or DELETE query on the SQLite database",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "SQL query to execute"
+      }
+    },
+    "required": [
+      "query"
+    ]
+  },
+  "outputSchema": null,
+  "icons": null,
+  "annotations": null,
+  "meta": null
+}

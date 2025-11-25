@@ -1,0 +1,10 @@
+[project]
+name = "taming-agent-context"
+version = "0.0.2"
+description = "Taming context of agents"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "mcp"
+]

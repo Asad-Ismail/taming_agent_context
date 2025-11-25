@@ -1,0 +1,52 @@
+
+load_dotenv(find_dotenv())
+
+app = Flask(__name__, static_folder='.')
+CORS(app)
+
+# Style configuration
+STYLE_CONFIG = {
+    "colors": ["#2E86AB", "#A23B72", "#F18F01", "#C73E1D", "#6A994E"],
+    "figure_size": (10, 6),
+    "dpi": 100
+}
+
+# Initialize components
+api_key = os.getenv("OPENAI_API_KEY")
+api_base = os.getenv("OPENAI_API_BASE")
+
+
+
+from openai import OpenAI
+
+client = OpenAI(api_key=token, base_url="https://chat.int.bayer.com/api/v2”)
+
+
+
+
+# Initialize LLM
+llm_kwargs = {
+    "model": "gpt-4o-mini",
+    "temperature": 0,
+    "api_key": openai_api_key,
+    "callbacks": [self.langfuse_handler]
+}
+
+if openai_api_base:
+    llm_kwargs["openai_api_base"] = openai_api_base
+
+llm = ChatOpenAI(**llm_kwargs)
+
+
+completion = llm.chat.completions.create(
+model="deepmind/meta-llama-3-8b-instruct",
+messages=[{
+"role": "system",
+"content": "You are a helpful assistant."
+}, {
+"role": "user",
+"content": "Who won the world series in 2020?"
+}]
+)
+
+pprint(completion.choices[0].message.content)

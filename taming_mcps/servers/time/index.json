@@ -1,0 +1,8 @@
+{
+  "server_name": "time",
+  "description": "Official tools for time.",
+  "tools": [
+    "get_current_time",
+    "convert_time"
+  ]
+}
