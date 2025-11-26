@@ -99,9 +99,8 @@ async def run_agent_executor():
         ```python
         import os
         print(os.listdir('./servers'))
-        ```
-        
-        Then navigate to the relevant server, read its INDEX.md, read the required tools .py files, and use them.
+        ``` 
+        Then navigate to the relevant tool, read the required tools .py files, and use them.
         All tools are async - use `await` when calling them.
         
         Never write code from scratch if a tool exists in ./servers/.
