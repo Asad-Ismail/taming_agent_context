@@ -4,8 +4,12 @@ import asyncio
 import shutil
 import sqlite3
 from openai import AsyncOpenAI
+from dotenv import load_dotenv, find_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+# Load environment variables
+load_dotenv(find_dotenv())
 
 # --- CONFIGURATION ---
 REGISTRY_ROOT = os.path.abspath("./servers")
@@ -83,7 +87,6 @@ async def build_registry():
     fetch_and_save_server_tools("git", "uvx", ["mcp-server-git", "--repository", GIT_REPO]),
     fetch_and_save_server_tools("time", "uvx", ["mcp-server-time"]))
 
-
     # Cleanup temp file
     if os.path.exists(DB_FILE):
         os.remove(DB_FILE)
@@ -100,76 +103,211 @@ async def build_registry():
 
 # --- THE DISCOVERY AGENT ---
 
-def count_tokens(text):
+def estimate_tokens(text):
+    """Rough estimate for context that isn't sent to API yet"""
     return len(str(text)) / 4
 
-async def run_discovery_agent():
-    print("\n🕵️ STARTING DISCOVERY AGENT...")
+async def compare_discovery_agent():
+    print("\nSTARTING DISCOVERY AGENT WITH LLM...")
     
-    # We use the Filesystem MCP to "Browse" the registry we just built
-    server_params = StdioServerParameters(
-        command="npx",
-        args=["-y", "@modelcontextprotocol/server-filesystem", REGISTRY_ROOT],
-        env=os.environ.copy()
+    # Initialize OpenAI client
+    api_key = os.getenv("OPENAI_API_KEY")
+    api_base = os.getenv("OPENAI_API_BASE")
+    client = AsyncOpenAI(api_key=api_key, base_url=api_base)
+    
+    # SCENARIO: User asks "What time is it in Tokyo?"
+    user_query = "What time is it in Tokyo?"
+    print(f"\n User Query: '{user_query}'")
+
+
+    print("\n" + "="*60)
+    print("CASE 1: SMART DISCOVERY - LLM navigates tool registry")
+    print("="*60)
+    
+    discovered_tokens = 0
+    
+    # LLM sees available server categories
+    # Dynamically discover all servers in the registry
+    server_indices = {}
+    for server_name in os.listdir(REGISTRY_ROOT):
+        server_path = os.path.join(REGISTRY_ROOT, server_name)
+        if os.path.isdir(server_path):
+            index_path = os.path.join(server_path, "index.json")
+            if os.path.exists(index_path):
+                with open(index_path, "r") as f:
+                    server_indices[server_name] = json.load(f)
+    
+    # Build server list dynamically
+    server_list_lines = ["Available tool servers:"]
+    for server_name, index in server_indices.items():
+        server_list_lines.append(f"    - {server_name}: {index['description']}")
+    server_list = "\n".join(server_list_lines)
+    
+    context_tokens_estimate = estimate_tokens(server_list)
+    
+    print(f" LLM sees server categories (~{int(context_tokens_estimate)} tokens estimated)")
+    
+    # Ask LLM to pick the right server
+    response1 = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a tool discovery assistant. Given a user query, identify which tool server category would be most relevant. Respond with only the server name."},
+            {"role": "user", "content": f"User query: {user_query}\n\n{server_list}\n\nWhich server should I use?"}
+        ]
     )
+    
+    selected_server = response1.choices[0].message.content.strip().lower()
+    discovered_tokens += response1.usage.total_tokens
+    
+    print(f"   LLM selected: '{selected_server}'")
+    print(f"   Actual API tokens: {response1.usage.total_tokens} (prompt: {response1.usage.prompt_tokens}, completion: {response1.usage.completion_tokens})")
+    
+    #  Load tools from selected server
+    with open(os.path.join(REGISTRY_ROOT, selected_server, "index.json"), "r") as f:
+        server_index = json.load(f)
+    
+    tools_list = "\n".join([f"- {tool}" for tool in server_index['tools']])
+    context_tokens_estimate = estimate_tokens(tools_list)
+    
+    print(f"\n LLM sees tools in '{selected_server}' (~{int(context_tokens_estimate)} tokens estimated)")
+    
+    # Ask LLM to pick the right tool
+    response2 = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a tool discovery assistant. Given a user query, identify which specific tool would be most relevant. Respond with only the tool name."},
+            {"role": "user", "content": f"User query: {user_query}\n\nAvailable tools:\n{tools_list}\n\nWhich tool should I use?"}
+        ]
+    )
+    
+    selected_tool = response2.choices[0].message.content.strip()
+    discovered_tokens += response2.usage.total_tokens
+    
+    print(f"   LLM selected: '{selected_tool}'")
+    print(f"   Actual API tokens: {response2.usage.total_tokens} (prompt: {response2.usage.prompt_tokens}, completion: {response2.usage.completion_tokens})")
+    
+    # Step 3: Load the selected tool's full definition
+    tool_path = os.path.join(REGISTRY_ROOT, selected_server, f"{selected_tool}.json")
+    with open(tool_path, 'r') as f:
+        tool_def = f.read()
+    
+    tool_def_tokens = estimate_tokens(tool_def)
+    
+    print(f"\n👉 Step 3: Load full tool definition (~{int(tool_def_tokens)} tokens estimated)")
+    print(f" SMART DISCOVERY TOTAL: {int(discovered_tokens)} actual API tokens")
+    
+    # Now actually call the tool with the discovered tool definition using function calling
+    print(f"\n👉 Step 4: Call LLM with discovered tool (using function calling)")
+    
+    tool_data = json.loads(tool_def)
+    
+    response3 = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "user", "content": user_query}
+        ],
+        tools=[{
+            "type": "function",
+            "function": {
+                "name": tool_data["name"],
+                "description": tool_data["description"],
+                "parameters": tool_data["inputSchema"]
+            }
+        }],
+        tool_choice="auto"
+    )
+    
+    discovered_tokens += response3.usage.total_tokens
+    
+    # Check if LLM wants to call the tool
+    if response3.choices[0].message.tool_calls:
+        tool_call = response3.choices[0].message.tool_calls[0]
+        print(f"   LLM called tool: {tool_call.function.name}")
+        print(f"   With arguments: {tool_call.function.arguments}")
+        answer_smart = f"Tool call: {tool_call.function.name}({tool_call.function.arguments})"
+    else:
+        answer_smart = response3.choices[0].message.content
+        print(f"   LLM Answer: {answer_smart}")
+    
+    print(f"   Actual API tokens: {response3.usage.total_tokens} (prompt: {response3.usage.prompt_tokens}, completion: {response3.usage.completion_tokens})")
+    print(f" SMART DISCOVERY TOTAL: {int(discovered_tokens)} actual API tokens")
+    
+    # --- CASE 2: Naive Approach (Load ALL tools upfront) ---
+    print("\n" + "="*60)
+    print("CASE 2: NAIVE APPROACH - Load all tools upfront")
+    print("="*60)
+    
+    naive_tokens = 0
+    
+    # Load all tool definitions
+    all_tools = []
+    for root, _, files in os.walk(REGISTRY_ROOT):
+        for f in files:
+            if f.endswith('.json') and f != 'index.json':
+                with open(os.path.join(root, f), "r") as tool_file:
+                    all_tools.append(tool_file.read())
+    
+    all_tools_str = "\n\n".join(all_tools)
+    estimated_context = estimate_tokens(all_tools_str)
+    print(f"Loading ALL tool definitions: ~{int(estimated_context)} tokens estimated")
+    
+    # Call LLM with ALL tools at once using function calling
+    print(f"\n👉 Call LLM with ALL tools (using function calling)")
+    
+    # Convert all tool definitions to OpenAI function format
+    all_tools_funcs = []
+    for tool_str in all_tools:
+        tool_json = json.loads(tool_str)
+        all_tools_funcs.append({
+            "type": "function",
+            "function": {
+                "name": tool_json["name"],
+                "description": tool_json["description"],
+                "parameters": tool_json["inputSchema"]
+            }
+        })
+    
+    response_naive = await client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "user", "content": user_query}
+        ],
+        tools=all_tools_funcs,
+        tool_choice="auto"
+    )
+    
+    naive_tokens = response_naive.usage.total_tokens
+    
+    # Check if LLM wants to call a tool
+    if response_naive.choices[0].message.tool_calls:
+        tool_call = response_naive.choices[0].message.tool_calls[0]
+        print(f"   LLM called tool: {tool_call.function.name}")
+        print(f"   With arguments: {tool_call.function.arguments}")
+        answer_naive = f"Tool call: {tool_call.function.name}({tool_call.function.arguments})"
+    else:
+        answer_naive = response_naive.choices[0].message.content
+        print(f"   LLM Answer: {answer_naive}")
 
-    #client = AsyncOpenAI()
 
-    async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            
-            # SCENARIO: User asks "What time is it in Tokyo?"
-            # The agent knows nothing. It must find the "time" tool.
-            
-            print("\n🤖 User Query: 'What time is it in Tokyo?'")
-            total_tokens = 0
-            
-            # STEP 1: List Root Servers
-            print("👉 Step 1: Agent listing ./servers root...")
-            ls_root = await session.call_tool("list_directory", arguments={"path": REGISTRY_ROOT})
-            root_content = str(ls_root.content)
-            total_tokens += count_tokens(root_content)
-            
-            print(f"   Agent sees: {['sqlite', 'git', 'filesystem', 'time']}")
-            print(f"   Token Cost: {int(count_tokens(root_content))}")
+    assert answer_smart == answer_naive, "Answers from both approaches should match!"
 
-            # STEP 2: Agent picks 'time' folder
-            target_path = os.path.join(REGISTRY_ROOT, "time")
-            print(f"\n👉 Step 2: Agent checking '{target_path}'...")
-            ls_time = await session.call_tool("list_directory", arguments={"path": target_path})
-            
-            # STEP 3: Agent reads 'get_current_time.json'
-            # In a real agent loop, the LLM would pick this file based on the name
-            tool_path = os.path.join(target_path, "get_current_time.json")
-            print(f"\n👉 Step 3: Agent reading tool def '{tool_path}'...")
-            
-            # Just read the file directly from disk for demonstration
-            with open(tool_path, 'r') as f:
-                tool_text = f.read()
-            
-            total_tokens += count_tokens(tool_text)
-            
-            tool_data = json.loads(tool_text)
-            print(f"✅ Loaded Tool Schema: {tool_data['name']}")
-            print(f"✅ FINAL CONTEXT LOAD: ~{int(total_tokens)} tokens")
-            
-            # --- COMPARISON ---
-            # Calculate cost if we had loaded ALL tools from ALL servers
-            all_files_content = ""
-            for root, _, files in os.walk(REGISTRY_ROOT):
-                for f in files:
-                    with open(os.path.join(root, f), "r") as tool_file:
-                        all_files_content += tool_file.read()
-            
-            full_load_tokens = count_tokens(all_files_content)
-            savings = ((full_load_tokens - total_tokens) / full_load_tokens) * 100
-            
-            print("\n" + "="*40)
-            print(f" VS LOADING ALL TOOLS: ~{int(full_load_tokens)} tokens")
-            print(f" EFFICIENCY GAIN:      {savings:.2f}%")
-            print("="*40)
+    print(f"   Actual API tokens: {naive_tokens} (prompt: {response_naive.usage.prompt_tokens}, completion: {response_naive.usage.completion_tokens})")
+    print(f" NAIVE APPROACH TOTAL: {int(naive_tokens)} actual API tokens")
+
+    
+    # --- COMPARISON ---
+    savings = ((naive_tokens - discovered_tokens) / naive_tokens) * 100
+    
+    print("\n" + "="*60)
+    print("RESULTS COMPARISON")
+    print("="*60)
+    print(f"Smart Discovery Total:       {int(discovered_tokens)} tokens (actual)")
+    print(f"Naive Approach Total:        {int(naive_tokens)} tokens (actual)")
+    print(f"Token Savings:               {int(naive_tokens - discovered_tokens)} tokens")
+    print(f"Efficiency Gain:             {savings:.2f}%")
+    print("="*60)
+
 
 if __name__ == "__main__":
     asyncio.run(build_registry())
-    asyncio.run(run_discovery_agent())
+    asyncio.run(compare_discovery_agent())
