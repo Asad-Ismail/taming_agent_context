@@ -80,18 +80,19 @@ async def build_code_registry():
     conn.close()
 
     # Definition of servers to "virtualize"
+    # Using explicit versions to avoid npx cache corruption issues
     server_configs = [
-        ("time", "uvx", ["mcp-server-time"]),
+        ("time", "uvx", ["mcp-server-time"]),  # uvx handles versions differently
         ("sqlite", "uvx", ["mcp-server-sqlite", "--db-path", DB_FILE]),
         ("git", "uvx", ["mcp-server-git", "--repository", os.path.dirname(os.getcwd())]),
-        ("github", "npx", ["-y", "@modelcontextprotocol/server-github"]),
-        ("filesystem", "npx", ["-y", "@modelcontextprotocol/server-filesystem", os.path.dirname(os.getcwd())]),
+        ("github", "npx", ["-y", "@modelcontextprotocol/server-github@2025.4.8"]),
+        ("filesystem", "npx", ["-y", "@modelcontextprotocol/server-filesystem@2025.11.25", os.path.dirname(os.getcwd())]),
     ]
 
     for name, cmd, args in server_configs:
         # Check if command exists
         if not shutil.which(cmd):
-            print(f"   ⚠️ Skipping '{name}': {cmd} not found")
+            print(f"   Warning: Skipping '{name}': {cmd} not found")
             continue
             
         server_dir = os.path.join(REGISTRY_ROOT, name)
@@ -141,7 +142,7 @@ async def build_code_registry():
     if os.path.exists(DB_FILE):
         os.remove(DB_FILE)
 
-    print("✅ Registry setup complete.\n")
+    print("Registry setup complete.\n")
 
 async def main():
     await build_code_registry()

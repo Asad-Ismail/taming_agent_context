@@ -13,6 +13,8 @@ from mcp.client.stdio import stdio_client
 
 load_dotenv()
 
+model_name = "z-ai/glm-4.5-air:free" if not os.getenv("MODEL") else os.getenv("MODEL")
+
 async def start_mcp_servers(stack: contextlib.AsyncExitStack):
     """Start all MCP servers and return sessions with their tools."""
     # Use the SAME server configs as build_registry.py for fair comparison
@@ -20,14 +22,14 @@ async def start_mcp_servers(stack: contextlib.AsyncExitStack):
         ("time", "uvx", ["mcp-server-time"]),
         ("sqlite", "uvx", ["mcp-server-sqlite", "--db-path", "temp_comparison.db"]),
         ("git", "uvx", ["mcp-server-git", "--repository", os.path.dirname(os.getcwd())]),
-        ("github", "npx", ["-y", "@modelcontextprotocol/server-github"]),
-        ("filesystem", "npx", ["-y", "@modelcontextprotocol/server-filesystem", os.path.dirname(os.getcwd())]),
+        ("github", "npx", ["-y", "@modelcontextprotocol/server-github@2025.4.8"]),
+        ("filesystem", "npx", ["-y", "@modelcontextprotocol/server-filesystem@2025.11.25", os.path.dirname(os.getcwd())]),
     ]
     
     sessions = {}
     all_tools = []
     
-    print("🔌 Connecting to MCP servers (loading ALL tools for traditional mode)...")
+    print("Connecting to MCP servers (loading ALL tools for traditional mode)...")
     
     for name, cmd, args in servers:
         try:
@@ -60,9 +62,9 @@ async def start_mcp_servers(stack: contextlib.AsyncExitStack):
                     "openai_def": openai_tool
                 })
             
-            print(f"   ✅ Connected to '{name}' ({len(tools_response.tools)} tools)")
+            print(f"   Connected to '{name}' ({len(tools_response.tools)} tools)")
         except Exception as e:
-            print(f"   ⚠️ Could not connect to '{name}': {e}")
+            print(f"   Warning: Could not connect to '{name}': {e}")
     
     return sessions, all_tools
 
@@ -75,36 +77,32 @@ async def run_traditional_agent():
         sessions, all_tools = await start_mcp_servers(stack)
         print()
 
+        
         client = AsyncOpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
             base_url=os.getenv("OPENAI_API_BASE")
         )
         
         system_prompt = """You are a helpful assistant with access to various tools.
-    Use the available tools to complete the user's request."""
-        '''
-        user_query = """Create a summary report file named 'project_status.txt' with:
-        Current git branch and last commit message
-        Total number of Python files in the project
-        Current timestamp
+                Use the available tools to complete the user's request efficiently."""
 
-        Save it in the project root directory."""
-        '''
-
-        user_query = "What time is it in Amsterdam right now?"
+        #user_query = """Complete this multi-step task:
+        #Get tokyo current time and get me the list of files in the current directory from the filesystem server and write both 
+        #into a file called 'time_and_files.txt'."""
+        user_query = """Get Current Time of Amsterdam"""
         
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_query}
         ]
 
-        print(f"🤖 USER: {user_query.strip()}")
+        print(f"USER: {user_query.strip()}")
         print("-" * 50)
 
         # Prepare OpenAI tools list
         openai_tools = [tool_info["openai_def"] for tool_info in all_tools]
         
-        print(f"\n📊 Total tools available: {len(openai_tools)}")
+        print(f"\nTotal tools available: {len(openai_tools)}")
         
         total_input_tokens = 0
         total_output_tokens = 0
@@ -115,7 +113,7 @@ async def run_traditional_agent():
             turn_count += 1
             
             response = await client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=model_name,
                 messages=messages,
                 temperature=0,
                 tools=openai_tools
@@ -146,7 +144,7 @@ async def run_traditional_agent():
                         break
                 
                 if not tool_info:
-                    print(f"⚠️ Unknown tool: {function_name}")
+                    print(f"Warning: Unknown tool: {function_name}")
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
@@ -156,13 +154,13 @@ async def run_traditional_agent():
                 
                 try:
                     args = json.loads(tool_call.function.arguments)
-                    print(f"\n🔧 Calling {function_name}({args})")
+                    print(f"\nCalling {function_name}({args})")
                     
                     # Call the actual MCP tool
                     session = sessions[tool_info['server']]
                     result = await session.call_tool(tool_info['tool_name'], arguments=args)
                     
-                    # Extract content
+                    # Extract content (don't check isError - some tools use it incorrectly)
                     if hasattr(result, 'content'):
                         if isinstance(result.content, list):
                             content = '\n'.join(
@@ -174,7 +172,7 @@ async def run_traditional_agent():
                     else:
                         content = str(result)
                     
-                    print(f" Result: {content[:200]}...")
+                    print(f"Result: {content[:200]}...")
                     
                     messages.append({
                         "role": "tool",
@@ -183,7 +181,7 @@ async def run_traditional_agent():
                     })
                     
                 except Exception as e:
-                    print(f"⚠️ Error calling {function_name}: {e}")
+                    print(f"Error calling {function_name}: {e}")
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
