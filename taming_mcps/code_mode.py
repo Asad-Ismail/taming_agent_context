@@ -121,8 +121,14 @@ async def run_agent_executor():
         persistent_globals = {"os": os, "asyncio": asyncio, "json": json}
         persistent_locals = {}
 
+        total_input_tokens = 0
+        total_output_tokens = 0
+        turn_count = 0
+
         # Agent Loop
         for turn in range(8): # max 8 turns
+            turn_count += 1
+            
             response = await client.chat.completions.create(
                 model="gpt-4o",
                 messages=messages,
@@ -139,6 +145,12 @@ async def run_agent_executor():
                     }
                 }]
             )
+            
+            # Track tokens
+            if hasattr(response, 'usage'):
+                total_input_tokens += response.usage.prompt_tokens
+                total_output_tokens += response.usage.completion_tokens
+                print(f"\n📈 Turn {turn_count} - Input: {response.usage.prompt_tokens}, Output: {response.usage.completion_tokens}")
             
             msg = response.choices[0].message
             messages.append(msg)
@@ -160,6 +172,15 @@ async def run_agent_executor():
                     "tool_call_id": tool_call.id,
                     "content": result
                 })
+
+        print("\n" + "="*60)
+        print(f"📊 CODE MODE TOKEN USAGE:")
+        print(f"   Total Turns: {turn_count}")
+        print(f"   Input Tokens: {total_input_tokens:,}")
+        print(f"   Output Tokens: {total_output_tokens:,}")
+        print(f"   Total Tokens: {(total_input_tokens + total_output_tokens):,}")
+        print(f"   Tools in Context: 1 (run_python)")
+        print("="*60)
 
     finally:
         await stack.aclose()
