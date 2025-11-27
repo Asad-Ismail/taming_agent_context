@@ -9,7 +9,7 @@ import sys
 async def run_mode(script_name, mode_name):
     """Run a mode script and capture output."""
     print(f"\n{'='*70}")
-    print(f"🚀 Running {mode_name}...")
+    print(f"Running {mode_name}...")
     print(f"{'='*70}\n")
     
     result = subprocess.run(
