@@ -132,6 +132,72 @@ Each step prompt = Frozen PREFIX + STATE snapshot + last event excerpt + todo re
 - Agent must read error file to diagnose
 - Enables learning from failures
 
+## LLM Backends
+
+The experiment framework supports two LLM backends for comparing cached vs uncached inference:
+
+### OpenAI (Default)
+Cloud-based inference with prompt caching support.
+
+**Features:**
+- Prompt caching with KV-cache reuse
+- Token usage tracking (including cached tokens)
+- Cost estimation
+- Models: gpt-4o-mini, gpt-4o
+
+**Usage:**
+```bash
+python run_experiment.py --backend openai --config config.yaml
+```
+
+**Config:**
+```yaml
+model:
+  name: "gpt-4o-mini"
+  backend: "openai"
+  tier: "flex"  # or "standard", "batch"
+```
+
+### vLLM (Local)
+Local inference using vLLM server with OpenAI-compatible API.
+
+**Features:**
+- No prompt caching (cached_tokens always 0)
+- Zero direct cost (local compute)
+- Enables comparison: cached (OpenAI) vs uncached (vLLM)
+- Models: Any local model (Llama, Qwen, etc.)
+
+**Usage:**
+```bash
+# Start vLLM server first
+python -m vllm.entrypoints.openai.api_server --model meta-llama/Llama-3.1-8B-Instruct
+
+# Run experiment
+python run_experiment.py --backend vllm --vllm-url http://localhost:8000/v1
+```
+
+**Config:**
+```yaml
+model:
+  name: "meta-llama/Llama-3.1-8B-Instruct"
+  backend: "vllm"
+
+vllm:
+  base_url: "http://localhost:8000/v1"
+```
+
+**Metrics Comparison:**
+| Metric | OpenAI | vLLM |
+|--------|--------|------|
+| cached_tokens | >0 | 0 |
+| estimated_cost_usd | >0 | 0 |
+| ttft_ms | Varies | Varies |
+
+This enables direct comparison of:
+- Cache hit rates
+- Performance with/without caching
+- Cost implications
+
 ## Experiment Variants
 
 The codebase supports testing different configurations:

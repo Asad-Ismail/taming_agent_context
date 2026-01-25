@@ -1,13 +1,17 @@
 # Manus Experiment Configuration
 
 experiment:
-  variant: "A1"           # Variant to run (A1, B1, C1, E2, F1, F2, D1, D2)
+  variant: "B1"           # Variant to run (A1, B1, C1, E2, F1, F2, D1, D2)
   max_steps: 20           # Maximum agent steps
   task_id: "data_cleaning"
 
 model:
   name: "gpt-4o-mini"     # Model to use
-  tier: "flex"            # Pricing tier: flex, standard, batch
+  backend: "openai"       # Backend: openai or vllm
+  tier: "flex"            # Pricing tier: flex, standard, batch (OpenAI only)
+
+vllm:
+  base_url: "http://localhost:8000/v1"  # vLLM server URL (if backend is vllm)
 
 token_optimization:
   large_output_threshold: 150  # Offload outputs larger than this (characters)

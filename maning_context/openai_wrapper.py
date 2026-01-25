@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+from llm_wrapper import LLMWrapper
 
 load_dotenv()
 
@@ -40,9 +41,9 @@ class StepMetrics:
     prompt_cache_key: str
 
 
-class OpenAIStreamWrapper:
+class OpenAIStreamWrapper(LLMWrapper):
     def __init__(self, model: str = "gpt-4o-mini", tier: str = "flex"):
-        self.model = model
+        super().__init__(model)
         self.tier = tier
 
         headers = {}

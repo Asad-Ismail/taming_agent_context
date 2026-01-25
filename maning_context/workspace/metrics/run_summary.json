@@ -1,11 +1,11 @@
 {
   "variant": "B1",
   "tier": "flex",
-  "total_steps": 3,
+  "total_steps": 20,
   "success": false,
-  "total_cost_usd": 0.0047,
-  "avg_ttft_ms": 576.06,
-  "max_input_tokens": 3932,
-  "total_input_tokens": 11236,
-  "cache_hit_ratio": 0.661
+  "total_cost_usd": 0.0225,
+  "avg_ttft_ms": 1154.01,
+  "max_input_tokens": 3923,
+  "total_input_tokens": 67067,
+  "cache_hit_ratio": 0.868
 }

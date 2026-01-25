@@ -1,32 +1,53 @@
 {
-  "pass": true,
-  "errors": [],
+  "pass": false,
+  "errors": [
+    "Row 2: Missing income",
+    "Row 2: income='' is not numeric",
+    "Row 2: income_per_age is missing or invalid",
+    "Row 6: Missing income",
+    "Row 6: income='' is not numeric",
+    "Row 6: income_per_age is missing or invalid",
+    "Row 9: Missing age",
+    "Row 9: age='' is not numeric",
+    "Row 9: income_per_age is missing or invalid",
+    "Row 13: Missing country",
+    "Row 22: Missing income",
+    "Row 22: income='' is not numeric",
+    "Row 22: income_per_age is missing or invalid",
+    "Row 29: Missing income",
+    "Row 29: Missing country",
+    "Row 29: income='' is not numeric",
+    "Row 29: income_per_age is missing or invalid",
+    "Row 31: Missing income",
+    "Row 31: income='' is not numeric",
+    "Row 31: income_per_age is missing or invalid"
+  ],
   "missing_before": {
     "age": 0,
     "income": 0,
     "country": 0
   },
   "missing_after": {
-    "age": 0,
-    "income": 0,
-    "country": 0
+    "age": 3151,
+    "income": 3357,
+    "country": 1636
   },
   "numeric_stats": {
     "age": {
-      "min": 25.0,
-      "max": 45.0,
-      "mean": 35.0
+      "min": 17.0,
+      "max": 100.0,
+      "mean": 38.58
     },
     "income": {
-      "min": 50000.0,
-      "max": 90000.0,
-      "mean": 70000.0
+      "min": 30000.0,
+      "max": 300000.0,
+      "mean": 42134.64
     },
     "income_per_age": {
-      "min": 2000.0,
-      "max": 2000.0,
-      "mean": 2000.0
+      "min": 300.0,
+      "max": 8108.11,
+      "mean": 1176.03
     }
   },
-  "row_count": 5
+  "row_count": 32561
 }

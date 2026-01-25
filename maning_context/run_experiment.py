@@ -10,9 +10,26 @@ from agent_loop import AgentLoop
 from tools import TOOL_SCHEMAS
 from metrics import log_step_metrics, write_run_summary, print_summary
 from openai_wrapper import OpenAIStreamWrapper
+from vllm_wrapper import VLLMStreamWrapper
 from config import load_config
 
 WORKSPACE = Path(__file__).parent / "workspace"
+
+
+def create_wrapper(backend: str, config: dict, vllm_url: str = None):
+    """Factory function to create LLM wrapper based on backend."""
+    if backend == "openai":
+        return OpenAIStreamWrapper(
+            model=config["model"]["name"],
+            tier=config["model"]["tier"]
+        )
+    elif backend == "vllm":
+        return VLLMStreamWrapper(
+            model=config["model"]["name"],
+            base_url=vllm_url or config.get("vllm", {}).get("base_url", "http://localhost:8000/v1")
+        )
+    else:
+        raise ValueError(f"Unknown backend: {backend}. Choose from: openai, vllm")
 
 
 async def main():
@@ -25,20 +42,30 @@ async def main():
                         help="Variant identifier (overrides config)")
     parser.add_argument("--max-steps", type=int, default=None,
                         help="Maximum steps (overrides config)")
+    parser.add_argument("--backend", choices=["openai", "vllm"], default=None,
+                        help="LLM backend to use (openai or vllm)")
+    parser.add_argument("--vllm-url", default=None,
+                        help="vLLM server URL (e.g., http://localhost:8000/v1)")
     args = parser.parse_args()
 
     config = load_config(args.config)
 
     # CLI args override config
-    tier = args.tier or config["model"]["tier"]
+    tier = args.tier or config["model"].get("tier", "flex")
     variant = args.variant or config["experiment"]["variant"]
     max_steps = args.max_steps or config["experiment"]["max_steps"]
+    backend = args.backend or config["model"].get("backend", "openai")
+    vllm_url = args.vllm_url
     model_name = config["model"]["name"]
     threshold = config["token_optimization"]["large_output_threshold"]
 
-    print(f"Initializing with {tier} tier, variant {variant}...")
+    print(f"Initializing with {backend} backend, {tier} tier, variant {variant}...")
+    if backend == "vllm":
+        url = vllm_url or config.get("vllm", {}).get("base_url", "http://localhost:8000/v1")
+        print(f"vLLM URL: {url}")
     print(f"Model: {model_name}, Threshold: {threshold} chars")
-    wrapper = OpenAIStreamWrapper(model=model_name, tier=tier)
+
+    wrapper = create_wrapper(backend, config, vllm_url)
 
     print("Creating workspace...")
     create_workspace()
