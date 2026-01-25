@@ -1,5 +1,6 @@
 """vLLM streaming wrapper for local inference."""
 import time
+import httpx
 from openai import AsyncOpenAI
 from llm_wrapper import LLMWrapper
 from openai_wrapper import StepMetrics
@@ -11,11 +12,54 @@ class VLLMStreamWrapper(LLMWrapper):
     def __init__(self, model: str, base_url: str = "http://localhost:8000/v1"):
         super().__init__(model)
         self.base_url = base_url
+        # Derive metrics URL from base_url (replace /v1 with empty or /metrics)
+        self.metrics_url = base_url.replace("/v1", "").rstrip("/") + "/metrics"
+        # Track previous cache stats to calculate per-request deltas
+        self._prev_hits = 0
+        self._prev_queries = 0
         # vLLM provides OpenAI-compatible API
         self.client = AsyncOpenAI(
             base_url=base_url,
             api_key="dummy"  # vLLM doesn't require authentication
         )
+
+    async def _get_cache_stats(self) -> tuple[int, int]:
+        """Fetch prefix cache stats from vLLM /metrics endpoint.
+
+        Returns:
+            (hits, queries) - Counter values for prefix cache hits and queries
+        """
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(self.metrics_url)
+                response.raise_for_status()
+
+                hits = 0
+                queries = 0
+
+                for line in response.text.split('\n'):
+                    line = line.strip()
+                    # Parse Prometheus counter format: vllm:prefix_cache_hits_total{...} N
+                    if line and not line.startswith('#'):
+                        if 'vllm:prefix_cache_hits_total{' in line:
+                            parts = line.split('}')
+                            if len(parts) >= 2:
+                                try:
+                                    hits = int(float(parts[1].strip()))
+                                except (ValueError, IndexError):
+                                    pass
+                        elif 'vllm:prefix_cache_queries_total{' in line:
+                            parts = line.split('}')
+                            if len(parts) >= 2:
+                                try:
+                                    queries = int(float(parts[1].strip()))
+                                except (ValueError, IndexError):
+                                    pass
+
+                return hits, queries
+        except Exception as e:
+            # Silently fall back to zeros if metrics endpoint is unavailable
+            return 0, 0
 
     async def call(
         self,
@@ -28,8 +72,8 @@ class VLLMStreamWrapper(LLMWrapper):
     ) -> tuple[dict, StepMetrics]:
         """Call vLLM and return response with metrics.
 
-        Note: vLLM doesn't support prompt caching like OpenAI, so cached_tokens
-        will always be 0. This enables honest comparison between backends.
+        Fetches aggregate cache stats from /metrics endpoint and calculates
+        per-request cached tokens based on prefix cache hit rate.
         """
         start_time = time.time()
         ttft_ms = 0.0
@@ -74,6 +118,26 @@ class VLLMStreamWrapper(LLMWrapper):
         if msg.tool_calls:
             tool_name = msg.tool_calls[0].function.name
 
+        # Fetch prefix cache stats from /metrics endpoint
+        current_hits, current_queries = await self._get_cache_stats()
+
+        # Calculate deltas (per-request values)
+        delta_hits = max(0, current_hits - self._prev_hits)
+        delta_queries = max(0, current_queries - self._prev_queries)
+
+        # Update previous values for next call
+        self._prev_hits = current_hits
+        self._prev_queries = current_queries
+
+        # Estimate cached tokens based on cache hit rate
+        # If we have query data, estimate cached tokens proportionally
+        cached_tokens = 0
+        if delta_queries > 0:
+            cache_hit_rate = delta_hits / delta_queries
+            cached_tokens = int(input_tokens * cache_hit_rate)
+
+        uncached_tokens = input_tokens - cached_tokens
+
         metrics = StepMetrics(
             variant_id=variant_id,
             task_id=task_id,
@@ -82,8 +146,8 @@ class VLLMStreamWrapper(LLMWrapper):
             e2e_ms=e2e_ms,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            cached_tokens=0,  # vLLM doesn't support prompt caching
-            uncached_tokens=input_tokens,  # All tokens are uncached
+            cached_tokens=cached_tokens,
+            uncached_tokens=uncached_tokens,
             estimated_cost_usd=0.0,  # Local inference has no direct cost
             tool_name=tool_name,
             tool_success=True,

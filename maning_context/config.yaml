@@ -1,13 +1,13 @@
 # Manus Experiment Configuration
 
 experiment:
-  variant: "B1"           # Variant to run (A1, B1, C1, E2, F1, F2, D1, D2)
+  variant: "A1"           # Variant to run (A1, B1, C1, E2, F1, F2, D1, D2)
   max_steps: 20           # Maximum agent steps
   task_id: "data_cleaning"
 
 model:
-  name: "gpt-4o-mini"     # Model to use
-  backend: "openai"       # Backend: openai or vllm
+  name: "TheBloke/CodeLlama-7B-Instruct-AWQ"  # Model to use
+  backend: "vllm"         # Backend: openai or vllm
   tier: "flex"            # Pricing tier: flex, standard, batch (OpenAI only)
 
 vllm:
