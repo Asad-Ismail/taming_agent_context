@@ -59,12 +59,36 @@ async def main():
     agent = AgentLoop(variant=variant, max_steps=max_steps, wrapper=wrapper,
                      large_output_threshold=threshold)
 
-    # Initialize messages ONCE before the loop
+    # Initialize messages
     state_snapshot = agent._build_state_snapshot()
-    messages = agent._build_messages(state_snapshot)
+    if variant == "B1":
+        # For B1, will regenerate system message with fresh UUID each step
+        messages = []
+    else:
+        # For other variants, initialize once
+        messages = agent._build_messages(state_snapshot)
 
     for step in range(agent.max_steps):
         task_signaled_complete = False
+
+        # For B1 variant, regenerate system message with fresh UUID each step
+        if variant == "B1":
+            import uuid
+            run_uuid = str(uuid.uuid4())
+            base_prefix = agent._build_messages(state_snapshot)[0]["content"]
+            system_msg = f"RunID: {run_uuid}\n\n" + base_prefix
+            print(f"[B1 DEBUG] Step {step + 1}: System prefix starts with RunID: {run_uuid[:8]}...")
+            print(f"[B1 DEBUG] Full prefix length: {len(system_msg)} chars")
+
+            if messages:
+                # Replace system message in existing messages
+                messages[0] = {"role": "system", "content": system_msg}
+            else:
+                # First step - create initial messages
+                workspace_dir = Path(__file__).parent / "workspace"
+                todo_content = (workspace_dir / "todo.md").read_text()
+                messages = [{"role": "system", "content": system_msg},
+                           {"role": "user", "content": f"{state_snapshot}\n\nCurrent todo.md:\n{todo_content}"}]
 
         if agent._check_success():
             print(f"\nTask completed successfully at step {step}!")
