@@ -1,0 +1,18 @@
+# Manus Experiment Configuration
+
+experiment:
+  variant: "A1"           # Variant to run (A1, B1, C1, E2, F1, F2, D1, D2)
+  max_steps: 20           # Maximum agent steps
+  task_id: "data_cleaning"
+
+model:
+  name: "gpt-4o-mini"     # Model to use
+  tier: "flex"            # Pricing tier: flex, standard, batch
+
+token_optimization:
+  large_output_threshold: 150  # Offload outputs larger than this (characters)
+  # Lower threshold = more offloading = less token usage
+  # Recommended: 100-200 for shell outputs, 500-1000 for file reads
+
+paths:
+  workspace: "workspace"  # Relative to project root

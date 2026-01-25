@@ -1,0 +1,4 @@
+variant_id,task_id,step_idx,ttft_ms,e2e_ms,input_tokens,output_tokens,cached_tokens,uncached_tokens,estimated_cost_usd,tool_name,tool_success,prompt_cache_key
+B1,data_cleaning,0,960.6549739837646,1122.889757156372,3632,16,0,3632,0.0020328,fs_read,True,task2-B
+B1,data_cleaning,1,578.8695812225342,5145.165205001831,3672,242,3584,88,0.0015664000000000003,fs_write,True,task2-B
+B1,data_cleaning,2,573.2505321502686,718.2817459106445,3932,18,3840,92,0.0011461999999999998,shell_run,True,task2-B

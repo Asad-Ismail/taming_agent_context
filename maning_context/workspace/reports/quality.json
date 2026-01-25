@@ -1,0 +1,32 @@
+{
+  "pass": true,
+  "errors": [],
+  "missing_before": {
+    "age": 0,
+    "income": 0,
+    "country": 0
+  },
+  "missing_after": {
+    "age": 0,
+    "income": 0,
+    "country": 0
+  },
+  "numeric_stats": {
+    "age": {
+      "min": 25.0,
+      "max": 45.0,
+      "mean": 35.0
+    },
+    "income": {
+      "min": 50000.0,
+      "max": 90000.0,
+      "mean": 70000.0
+    },
+    "income_per_age": {
+      "min": 2000.0,
+      "max": 2000.0,
+      "mean": 2000.0
+    }
+  },
+  "row_count": 5
+}

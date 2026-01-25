@@ -1,0 +1,36 @@
+import pandas as pd
+
+# Read the input CSV file
+input_file = 'data/raw.csv'
+output_file = 'data/clean.csv'
+df = pd.read_csv(input_file)
+
+# Step 1 - Fill Missing Values
+# Fill missing age values with median
+median_age = df['age'].median()
+df['age'].fillna(median_age, inplace=True)
+
+# Fill missing income values with median
+median_income = df['income'].median()
+df['income'].fillna(median_income, inplace=True)
+
+# Fill missing country values with 'Unknown'
+df['country'].fillna('Unknown', inplace=True)
+
+# Step 2 - Clip Outlier Values
+# Clip age values to the range [0, 100]
+df['age'] = df['age'].clip(0, 100)
+
+# Clip income values to the range [0, 300000]
+df['income'] = df['income'].clip(0, 300000)
+
+# Step 3 - Add Computed Column
+# Create income_per_age column
+# Prevent division by zero by using max(age, 1)
+df['income_per_age'] = df['income'] / df['age'].apply(lambda x: max(x, 1))
+
+# Step 4 - Preserve Row Order
+# Output the cleaned DataFrame to a new CSV file
+# The row order is preserved by default in pandas
+
+df.to_csv(output_file, index=False)
