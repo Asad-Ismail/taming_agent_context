@@ -95,7 +95,10 @@ class AgentLoop:
             log_file = WORKSPACE / "artifacts" / "logs" / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_shell_output.txt"
             log_file.write_text(content)
             self._add_to_registry(log_file, tool_name, content)
-            return f"[See: artifacts/logs/{log_file.name}]"
+
+            # Generate smart summary
+            summary = self._summarize_shell_result(content)
+            return f"{summary}\n[Full output: artifacts/logs/{log_file.name}]"
 
         # fs_list: offload only if large (current behavior)
         if len(content) > self.large_output_threshold:
@@ -105,6 +108,41 @@ class AgentLoop:
             return f"[See: artifacts/{artifact_file.name}]"
 
         return content
+
+    def _summarize_shell_result(self, content: str) -> str:
+        """Generate a human-readable summary of shell execution result."""
+        try:
+            data = eval(content)
+            returncode = data.get("returncode", -1)
+            stdout = data.get("stdout", "").strip()
+            stderr = data.get("stderr", "").strip()
+
+            # Success case
+            if returncode == 0:
+                status = "✅ Execution successful"
+                parts = [f"{status} (return code: {returncode})"]
+                if stdout:
+                    preview = stdout.split('\n')[0][:100]
+                    parts.append(f'stdout: "{preview}"')
+                return "\n".join(parts)
+
+            # Failure case
+            else:
+                status = "❌ Execution failed"
+                parts = [f"{status} (return code: {returncode})"]
+                if stderr:
+                    # Show first line of error
+                    error_line = stderr.split('\n')[0][:150]
+                    parts.append(f'stderr: "{error_line}"')
+                elif stdout:
+                    preview = stdout.split('\n')[0][:100]
+                    parts.append(f'stdout: "{preview}"')
+                return "\n".join(parts)
+
+        except Exception:
+            # Fallback for non-JSON output
+            preview = content[:150].replace('\n', ' ')
+            return f'Execution output: "{preview}..."'
 
     def _update_trace(self, step: int, event_type: str, data: dict):
         trace_entry = {
