@@ -52,7 +52,7 @@ def generate_python_wrapper(server_name: str, tool: Dict[str, Any]) -> str:
 
 async def build_code_registry():
     """Connects to real servers and generates the ./servers/ file tree."""
-    print("🔨 Building Code Registry (Generating Python wrappers)...")
+    print("Building Code Registry (Generating Python wrappers)...")
     
     if os.path.exists(REGISTRY_ROOT):
         shutil.rmtree(REGISTRY_ROOT)

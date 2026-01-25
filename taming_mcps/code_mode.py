@@ -137,10 +137,10 @@ async def run_agent_executor():
         ```
         
         ABSOLUTE PROHIBITIONS:
-        ❌ NEVER import datetime, time, pytz, or other stdlib modules to solve tasks
-        ❌ NEVER implement solutions yourself - ALWAYS use MCP tools from ./servers/
-        ❌ NEVER skip the discovery phase - you MUST explore ./servers/ first
-        ❌ DO NOT assume what tools exist - discover them every time
+        - NEVER import datetime, time, pytz, or other stdlib modules to solve tasks
+        - NEVER implement solutions yourself - ALWAYS use MCP tools from ./servers/
+        - NEVER skip the discovery phase - you MUST explore ./servers/ first
+        - DO NOT assume what tools exist - discover them every time
         
         CRITICAL RULES:
         - You are in an async context - use 'await', NEVER asyncio.run()
