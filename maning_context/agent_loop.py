@@ -188,6 +188,7 @@ class AgentLoop:
             })
 
             content = msg.content or ""
+            task_signaled_complete = False
 
             if msg.tool_calls:
                 for tool_call in msg.tool_calls:
@@ -199,6 +200,14 @@ class AgentLoop:
 
                     result, success = self._execute_tool(tool_name, arguments)
                     result = self._offload_large_output(result, tool_name)
+
+                    if tool_name == "task_complete":
+                        task_signaled_complete = True
+                        print(f"[COMPLETE] Agent signaled task completion at step {step + 1}")
+                        self._update_trace(step, "task_complete_signaled", {
+                            "success": True,
+                            "method": "tool_call"
+                        })
 
                     metrics.tool_name = tool_name
                     metrics.tool_success = success
@@ -224,8 +233,12 @@ class AgentLoop:
             else:
                 messages.append({"role": "assistant", "content": content})
 
+            if task_signaled_complete:
+                print(f"[SUCCESS] Agent terminated at step {step + 1} (task_complete called)")
+                break
+
             if self._check_success():
-                print(f"[SUCCESS] Task completed at step {step + 1}")
+                print(f"[SUCCESS] Task validated at step {step + 1} (quality.json passed)")
                 self._update_trace(step, "task_complete", {"success": True})
                 break
 

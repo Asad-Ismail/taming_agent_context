@@ -64,6 +64,8 @@ async def main():
     messages = agent._build_messages(state_snapshot)
 
     for step in range(agent.max_steps):
+        task_signaled_complete = False
+
         if agent._check_success():
             print(f"\nTask completed successfully at step {step}!")
             break
@@ -95,6 +97,10 @@ async def main():
                 result, success = agent._execute_tool(tool_name, arguments)
                 result = agent._offload_large_output(result, tool_name)
 
+                if tool_name == "task_complete":
+                    task_signaled_complete = True
+                    print(f"[COMPLETE] Agent signaled task completion at step {step + 1}")
+
                 metrics.tool_name = tool_name
                 metrics.tool_success = success
 
@@ -112,6 +118,10 @@ async def main():
                     "tool_call_id": tool_call.id,
                     "content": result
                 })
+
+            if task_signaled_complete:
+                print(f"[SUCCESS] Agent terminated at step {step + 1} (task_complete called)")
+                break
 
             if agent._check_success():
                 print(f"\nTask completed successfully at step {step + 1}!")
