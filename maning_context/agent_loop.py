@@ -86,11 +86,24 @@ class AgentLoop:
             return f"Error saved to artifacts/errors/{error_file.name}", False
 
     def _offload_large_output(self, content: str, tool_name: str) -> str:
+        # fs_read and fs_write: never offload (can be re-run, confirmations are small)
+        if tool_name in ["fs_read", "fs_write"]:
+            return content
+
+        # shell_run: always offload to logs/ (execution output, not preview)
+        if tool_name == "shell_run":
+            log_file = WORKSPACE / "artifacts" / "logs" / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_shell_output.txt"
+            log_file.write_text(content)
+            self._add_to_registry(log_file, tool_name, content)
+            return f"[See: artifacts/logs/{log_file.name}]"
+
+        # fs_list: offload only if large (current behavior)
         if len(content) > self.large_output_threshold:
             artifact_file = WORKSPACE / "artifacts" / "previews" / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{tool_name}_output.txt"
             artifact_file.write_text(content)
             self._add_to_registry(artifact_file, tool_name, content)
             return f"[See: artifacts/{artifact_file.name}]"
+
         return content
 
     def _update_trace(self, step: int, event_type: str, data: dict):
@@ -110,12 +123,12 @@ class AgentLoop:
             try:
                 data = eval(content)
                 return {
-                    "type": "shell_run (dict)",
+                    "type": "shell_run (execution output)",
                     "schema": list(data.keys()),
                     "preview": content[:100]
                 }
             except:
-                return {"type": "shell_run", "preview": content[:100]}
+                return {"type": "shell_run (execution output)", "preview": content[:100]}
         elif tool_name == "fs_read":
             lines = content.split('\n')
             return {
