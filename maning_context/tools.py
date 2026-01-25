@@ -90,12 +90,17 @@ def shell_run(cmd: str) -> dict:
         raise RuntimeError(f"Script execution failed: {e}")
 
 
+def task_complete() -> str:
+    return "Task marked as complete. The agent will stop after this step."
+
+
 TOOL_FUNCTIONS: dict[str, Callable] = {
     "fs_read": fs_read,
     "fs_write": fs_write,
     "fs_list": fs_list,
     "fs_grep": fs_grep,
     "shell_run": shell_run,
+    "task_complete": task_complete,
 }
 
 
@@ -169,6 +174,18 @@ TOOL_SCHEMAS = [
                     "cmd": {"type": "string", "description": "Python command to run scripts (e.g., 'python scripts/clean.py', 'python scripts/validate.py')"}
                 },
                 "required": ["cmd"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "task_complete",
+            "description": "Call this tool when you have completed the task successfully. After running validation and confirming data/clean.csv exists and reports/quality.json shows pass=true, call this to signal completion.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
             }
         }
     },

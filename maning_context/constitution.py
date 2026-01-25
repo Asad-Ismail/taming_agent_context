@@ -65,6 +65,7 @@ You have access to the following file system tools:
 - fs_list(dir): List all files and directories in a workspace directory
 - fs_grep(pattern, glob): Search for a text pattern in files matching a glob pattern
 - shell_run(cmd): Execute a Python script in the workspace scripts directory (e.g., "python scripts/validate.py")
+- task_complete(): Call this tool ONLY when you have successfully completed the task and validation passes
 
 All file paths are relative to the workspace directory. For example, "data/raw.csv" refers to workspace/data/raw.csv.
 
@@ -137,8 +138,7 @@ Follow this recommended approach to complete the task:
 6. Use shell_run with cmd="python scripts/validate.py" to validate your output
 7. Read workspace/reports/quality.json to check if validation passed
 8. If validation fails, fix the issues and re-run
-9. Update todo.md to reflect completion
-10. Report completion when validation passes
+9. When validation passes with {"pass": true}, call the task_complete() tool to signal completion
 
 ## Recommended Implementation Approach
 
@@ -192,6 +192,8 @@ Your task is complete when ALL of the following are true:
 2. workspace/reports/quality.json exists
 3. quality.json contains {"pass": true}
 4. All validation criteria are satisfied
+
+IMPORTANT: When you have confirmed all success criteria are met, you MUST call the task_complete() tool to signal completion. This is the only way to properly end the task.
 
 Begin by reading todo.md to understand your current goals, then use fs_list to explore the workspace and fs_read to examine the data file.
 """

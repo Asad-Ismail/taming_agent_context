@@ -34,10 +34,13 @@ class AgentLoop:
         ]
         return messages
 
-    def _build_messages_with_fresh_uuid(self, state_snapshot: str) -> list[dict]:
+    def _build_messages_with_fresh_uuid(self, state_snapshot: str, step: int = 0) -> list[dict]:
         if self.variant == "B1":
             import uuid
-            prefix = f"RunID: {uuid.uuid4()}\n\n" + get_prefix("A1")  # Get base prefix without UUID
+            run_uuid = str(uuid.uuid4())
+            prefix = f"RunID: {run_uuid}\n\n" + get_prefix("A1")
+            print(f"[B1 DEBUG] Step {step}: System prefix starts with RunID: {run_uuid[:8]}...")
+            print(f"[B1 DEBUG] Full prefix length: {len(prefix)} chars")
         else:
             prefix = get_prefix(self.variant)
 
@@ -162,7 +165,7 @@ class AgentLoop:
     async def run(self) -> dict:
         state_snapshot = self._build_state_snapshot()
         build_msg = self._build_messages_with_fresh_uuid if self.variant == "B1" else self._build_messages
-        messages = build_msg(state_snapshot)
+        messages = build_msg(state_snapshot, step=0)
 
         for step in range(self.max_steps):
             prompt_cache_key = get_prompt_cache_key(self.variant)
@@ -218,14 +221,16 @@ class AgentLoop:
                         "content": result
                     })
 
-                if self._check_success():
-                    self._update_trace(step, "task_complete", {"success": True})
-                    break
             else:
                 messages.append({"role": "assistant", "content": content})
 
+            if self._check_success():
+                print(f"[SUCCESS] Task completed at step {step + 1}")
+                self._update_trace(step, "task_complete", {"success": True})
+                break
+
             state_snapshot = self._build_state_snapshot(content)
-            messages = build_msg(state_snapshot)
+            messages = build_msg(state_snapshot, step=step+1)
             messages.append({"role": "assistant", "content": f"Previous response: {content}"})
 
         total_cost = sum(m.estimated_cost_usd for m in self.metrics)
