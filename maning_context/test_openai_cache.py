@@ -45,7 +45,7 @@ def load_config(config_path: str) -> tuple[PromptConfig, list[TestSuite]]:
     print(f"Total: {len(system_tokens) + len(tools_tokens)} tokens")
 
     if len(system_tokens) < 1024:
-        print("⚠️  Warning: System prompt < 1024 tokens, caching may not activate")
+        print("Warning: System prompt < 1024 tokens, caching may not activate")
 
     prompt_config = PromptConfig(
         system=system_prompt,
@@ -75,7 +75,7 @@ async def main():
     if args.suite:
         test_suites = [s for s in test_suites if s.name == args.suite]
         if not test_suites:
-            print(f"❌ Test suite '{args.suite}' not found")
+            print(f"Error: Test suite '{args.suite}' not found")
             return
 
     client = create_client(args.tier)

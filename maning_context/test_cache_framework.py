@@ -303,7 +303,7 @@ class TestReporter:
         print(f"TEST: {result.suite_name}")
         print(f"{'=' * 70}")
         print(f"Description: {result.suite_type}")
-        print(f"Passed: {'✅' if result.passed else '❌'}")
+        print(f"Passed: {result.passed}")
 
         for call in result.calls:
             print(f"  Call {call.call_number} (temp={call.temperature}):")
@@ -312,7 +312,7 @@ class TestReporter:
             print(f"    Timing: TTFT={call.ttft_ms:.0f}ms")
             print(f"    {call.content_preview}")
 
-        print(f"\n📊 Summary:")
+        print(f"\nSummary:")
         print(f"  Avg cache: {result.avg_cache_pct:.1f}%")
         print(f"  Avg TTFT: {result.avg_ttft_ms:.0f}ms")
         print(f"  Time saved: {result.time_saved_pct:+.1f}%")
