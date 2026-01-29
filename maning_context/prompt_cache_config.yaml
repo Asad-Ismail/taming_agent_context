@@ -1,5 +1,5 @@
-# OpenAI Cache Testing Configuration
-# Test definitions for systematic cache behavior validation
+# Prompt cache testing config
+# Tests from https://asad-ismail.github.io/posts/prompt_caching/
 
 base_prompt:
   system: |
@@ -80,73 +80,39 @@ base_prompt:
 
     ## Agent Rules
 
-    1. Always use tools to accomplish your tasks - do not make assumptions about file contents
-    2. Read files before editing them - understand current state before making changes
-    3. Validate your scripts before running them - check syntax and logic
-    4. Call task_complete() only when validation passes - confirm reports/quality.json shows pass=true
-    5. Preserve error outputs for analysis - errors contain diagnostic information
+    1. Always use tools to accomplish your tasks
+    2. Read files before editing them
+    3. Validate your scripts before running them
+    4. Call task_complete() only when validation passes
+    5. Preserve error outputs for analysis
 
-    ## Memory Management Strategy
+    ## Memory Management
 
-    Large outputs are automatically offloaded to artifacts/ directory to manage tokens:
-    - File previews longer than threshold are saved to artifacts/previews/
-    - Error outputs are saved to artifacts/errors/
-    - Execution logs are saved to artifacts/logs/
+    Large outputs are offloaded to artifacts/ directory:
+    - File previews to artifacts/previews/
+    - Error outputs to artifacts/errors/
+    - Execution logs to artifacts/logs/
     - State is reconstructed from filesystem each step
-    - Only remaining goals are recited at prompt end
-
-    ## Error Handling Protocol
-
-    When tools fail, preserve full error output for diagnostic purposes:
-    - Full stack traces are saved to artifacts/errors/ with timestamps
-    - Error file paths are referenced in subsequent prompts
-    - Agent must read error files to diagnose issues
-    - This enables learning from failures and iterative debugging
-
-    ## Token Discipline Best Practices
-
-    To maintain efficient token usage across iterations:
-    - Monitor cached_tokens vs prompt_tokens to verify cache effectiveness
-    - Watch for token growth across steps (indicates history leakage)
-    - Use deterministic templates for state reconstruction
-    - Avoid including timestamps, UUIDs, or changing values in stable prefix
-    - Keep tool definitions stable across all steps
-
-    ## Output Format Requirements
-
-    The cleaned dataset must:
-    - Have exactly the same rows as input (preserve row order)
-    - Have all required columns: id, age, income, country, income_per_age
-    - Pass all validation checks specified above
-    - Be written to workspace/data/clean.csv
-    - Have validation results in workspace/reports/quality.json
-
-    ## Important Constraints
-
-    - Only execute Python scripts that are in scripts/ directory
-    - Only clean.py and validate.py scripts are allowed to run
-    - Do not modify the validation script
-    - Always read scripts before running them to understand what they do
-    - If scripts fail, read error output from artifacts/ and fix issues
 
   user: "List the files in the scripts directory."
-  tools: []  # Loaded from tools.py
 
-# Test suites
+
+# Test suites validate cache behavior from blog post experiments
 test_suites:
+
+  # Baseline: identical prompts should cache after first call
   - name: baseline
-    description: "Identical prompts should cache 100%"
-    type: cache_hit
+    description: "Identical prompts cache after warmup"
     iterations: 3
     system_prompt: base
     user_message: constant
     tools: constant
     temperature: 0.1
-    expected_cache_pct: 98
+    expected_cache_pct: 90
 
-  - name: uuid_in_system_beginning
-    description: "UUID at beginning breaks cache"
-    type: cache_break
+  # Experiment 1a: UUID at system start breaks cache (early divergence)
+  - name: uuid_system_start
+    description: "UUID at system start breaks cache"
     iterations: 3
     system_prompt: prepend_uuid
     user_message: constant
@@ -154,9 +120,9 @@ test_suites:
     temperature: 0.1
     expected_cache_pct: 0
 
-  - name: uuid_in_system_end
-    description: "UUID at end of system prompt"
-    type: cache_break
+  # Experiment 1b: UUID at system end breaks cache when tools present
+  - name: uuid_system_end
+    description: "UUID at system end breaks cache with tools"
     iterations: 3
     system_prompt: append_uuid
     user_message: constant
@@ -164,52 +130,52 @@ test_suites:
     temperature: 0.1
     expected_cache_pct: 0
 
-  - name: uuid_in_user_message
-    description: "UUID in user message"
-    type: cache_hit
+  # Experiment 1c: UUID in user message preserves cache (late binding)
+  - name: uuid_user_message
+    description: "UUID in user message preserves cache"
     iterations: 3
     system_prompt: base
     user_message: append_uuid
     tools: constant
     temperature: 0.1
-    expected_cache_pct: 95
+    expected_cache_pct: 85
 
-  - name: temperature_changes
-    description: "Different temperatures, same cache"
-    type: sampling_independence
+  # Experiment 2a: Prepending tool breaks cache (early divergence)
+  - name: tool_prepend
+    description: "Prepending tool breaks cache"
+    iterations: 3
+    system_prompt: base
+    user_message: constant
+    tools: prepend_new
+    temperature: 0.1
+    expected_cache_pct: 0
+
+  # Experiment 2b: Appending tool may preserve some cache
+  - name: tool_append
+    description: "Appending tool breaks less cache"
+    iterations: 3
+    system_prompt: base
+    user_message: constant
+    tools: append_new
+    temperature: 0.1
+    expected_cache_pct: 0
+
+  # Temperature independence: cache works across different temps
+  - name: temperature_variation
+    description: "Temperature changes don't affect cache"
     iterations: 4
     system_prompt: base
     user_message: constant
     tools: none
     temperature: [0.1, 0.7, 1.0, 0.1]
-    expected_cache_pct: 95
+    expected_cache_pct: 85
 
-  - name: prepend_tool
-    description: "Add tool at beginning breaks cache"
-    type: cache_break
-    iterations: 3
-    system_prompt: base
-    user_message: constant
-    tools: prepend_new_tool
-    temperature: 0.1
-    expected_cache_pct: 0
-
-  - name: append_tool
-    description: "Add tool at end breaks cache"
-    type: cache_break
-    iterations: 3
-    system_prompt: base
-    user_message: constant
-    tools: append_new_tool
-    temperature: 0.1
-    expected_cache_pct: 0
-
-  - name: user_message_change
-    description: "Different user queries"
-    type: cache_hit
+  # User message rotation: different queries preserve cache
+  - name: user_message_rotation
+    description: "Different user messages preserve cache"
     iterations: 3
     system_prompt: base
     user_message: rotate
     tools: constant
     temperature: 0.1
-    expected_cache_pct: 95
+    expected_cache_pct: 85

@@ -8,5 +8,6 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "mcp",
     "pyyaml",
-    "pandas"
+    "pandas",
+    "tiktoken>=0.12.0",
 ]

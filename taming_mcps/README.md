@@ -81,11 +81,17 @@ This project demonstrates two approaches to using MCP (Model Context Protocol) t
 - **Infrastructure overhead:** Requires secure code execution environment with sandboxing
 - **Security critical:** `run_python` is essentially RCE—sandboxing is mandatory, not optional
 
-### Mitigation Strategies
-- **Controlled execution environment:** Restrict available modules and enforce tool discovery
-- **Explicit prohibitions:** Block stdlib alternatives (e.g., `datetime`, `pytz`) in system prompts
-- **Mandatory workflows:** Require step-by-step discovery before tool usage
-- **Resource limits and monitoring:** Sandbox with timeouts, memory limits, and audit logs
+### Mitigation Strategies (Production)
+
+This demo uses basic `exec()` without sandboxing. Production deployments need:
+- Subprocess or container isolation
+- RestrictedPython or similar
+- Timeouts and memory limits
+- Audit logging
+
+Current mitigations (prompt-level only):
+- System prompt prohibits stdlib alternatives (`datetime`, `pytz`)
+- Mandatory discovery workflow before tool usage
 
 ### When to Use Each Approach
 
@@ -103,21 +109,19 @@ This project demonstrates two approaches to using MCP (Model Context Protocol) t
 
 ## Usage
 
-1. **Build the tool registry:**
-   ```bash
-   python build_registry.py
-   ```
+```bash
+# 1. Build tool registry (generates ./servers/ directory)
+uv run python build_registry.py
 
-2. **Run comparison:**
-   ```bash
-   python compare_token_usage.py
-   ```
+# 2. Run comparison
+uv run python compare_token_usage.py
 
-3. **Run individual modes:**
-   ```bash
-   python traditional_mode.py
-   python code_mode.py
-   ```
+# 3. Run individual modes
+uv run python traditional_mode.py
+uv run python code_mode.py
+```
+
+**Note:** Must run `build_registry.py` before `code_mode.py`. Requires MCP servers in PATH (`uvx`, `npx`).
 
 ## References
 

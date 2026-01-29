@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Critical Requirements
+
+1. **Always use `uv` as package manager** - never use pip, conda, or poetry
+2. **Always run scripts with `uv run`** - e.g., `uv run python script.py`
+3. **Create `.env` if not present** - copy from `.env.example` and fill in values
+4. **Load environment with `python-dotenv`** - all scripts must load `.env` at startup
+
 ## Project Overview
 
 This repository contains two distinct research projects exploring agent context management and tool access patterns:

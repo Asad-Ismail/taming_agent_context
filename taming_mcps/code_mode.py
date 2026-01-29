@@ -7,8 +7,10 @@ import json
 import asyncio
 import contextlib
 import io
+import shutil
+import sqlite3
 from openai import AsyncOpenAI
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -61,12 +63,22 @@ async def start_mcp_servers(stack: contextlib.AsyncExitStack):
     """Start all MCP servers and register them in the bridge."""
     import mcp_bridge
     
+    DB_FILE = "temp_runtime.db"
+    conn = sqlite3.connect(DB_FILE)
+    conn.close()
+    
     servers = [
         ("time", "uvx", ["mcp-server-time"]),
+        ("sqlite", "uvx", ["mcp-server-sqlite", "--db-path", DB_FILE]),
         ("git", "uvx", ["mcp-server-git", "--repository", os.path.dirname(os.getcwd())]),
+        ("github", "npx", ["-y", "@modelcontextprotocol/server-github@2025.4.8"]),
+        ("filesystem", "npx", ["-y", "@modelcontextprotocol/server-filesystem@2025.11.25", os.path.dirname(os.getcwd())]),
     ]
     
     for name, cmd, args in servers:
+        if not shutil.which(cmd):
+            print(f"   Skipping '{name}': {cmd} not found")
+            continue
         try:
             params = StdioServerParameters(command=cmd, args=args, env=os.environ.copy())
             read, write = await stack.enter_async_context(stdio_client(params))
@@ -234,9 +246,9 @@ async def run_agent_executor():
         await stack.aclose()
 
 async def main():
-    # Check if registry exists
     if not os.path.exists("./servers"):
-        print("Warning: Registry not found. Please run 'python build_registry.py' first.")
+        print("Error: ./servers/ directory not found.")
+        print("Run 'uv run python build_registry.py' first to generate tool wrappers.")
         return
     
     await run_agent_executor()
