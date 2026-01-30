@@ -41,13 +41,8 @@ def create_workspace():
             "## Other\n"
             "- todo.md - Current task list\n"
             "- index.md - This file\n"
-            "- progress.md - Progress log\n"
             "- trace.jsonl - Event log\n"
         )
-
-    progress_path = WORKSPACE / "progress.md"
-    if not progress_path.exists():
-        progress_path.write_text("# Progress Log\n\n")
 
     steps_csv = WORKSPACE / "metrics" / "run_steps.csv"
     if not steps_csv.exists():

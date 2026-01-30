@@ -14,5 +14,4 @@
 ## Other
 - todo.md - Current task list
 - index.md - This file
-- progress.md - Progress log
 - trace.jsonl - Event log
