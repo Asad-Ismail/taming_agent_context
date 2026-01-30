@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Literal
 
 from openai_wrapper import OpenAIStreamWrapper, StepMetrics
-from constitution import get_prefix, get_prompt_cache_key, TODO_TEMPLATE, INDEX_TEMPLATE
+from constitution import get_prefix, get_prompt_cache_key
 from tools import TOOL_FUNCTIONS, TOOL_SCHEMAS
 
 WORKSPACE = Path(__file__).parent / "workspace"
@@ -15,40 +15,25 @@ WORKSPACE = Path(__file__).parent / "workspace"
 class AgentLoop:
     def __init__(self, variant: str = "A1", max_steps: int = 20,
                  wrapper: OpenAIStreamWrapper | None = None,
-                 large_output_threshold: int = 150):
+                 large_output_threshold: int = 150,
+                 disable_offload: bool = False):
         self.variant = variant
         self.max_steps = max_steps
         self.wrapper = wrapper or OpenAIStreamWrapper()
         self.metrics: list[StepMetrics] = []
         self.trace: list[dict] = []
         self.large_output_threshold = large_output_threshold
+        self.disable_offload = disable_offload  # C1 variant: no offloading
 
     def _build_messages(self, state_snapshot: str) -> list[dict]:
         prefix = get_prefix(self.variant)
 
-        todo_content = (WORKSPACE / "todo.md").read_text()
-
+        # Agent-driven recitation: the system prompt instructs the agent to
+        # read and update todo.md itself. We don't inject it mechanically.
+        # This tests whether the agent follows recitation discipline.
         messages = [
             {"role": "system", "content": prefix},
-            {"role": "user", "content": f"{state_snapshot}\n\nCurrent todo.md:\n{todo_content}"}
-        ]
-        return messages
-
-    def _build_messages_with_fresh_uuid(self, state_snapshot: str, step: int = 0) -> list[dict]:
-        if self.variant == "B1":
-            import uuid
-            run_uuid = str(uuid.uuid4())
-            prefix = f"RunID: {run_uuid}\n\n" + get_prefix("A1")
-            print(f"[B1 DEBUG] Step {step}: System prefix starts with RunID: {run_uuid[:8]}...")
-            print(f"[B1 DEBUG] Full prefix length: {len(prefix)} chars")
-        else:
-            prefix = get_prefix(self.variant)
-
-        todo_content = (WORKSPACE / "todo.md").read_text()
-
-        messages = [
-            {"role": "system", "content": prefix},
-            {"role": "user", "content": f"{state_snapshot}\n\nCurrent todo.md:\n{todo_content}"}
+            {"role": "user", "content": state_snapshot}
         ]
         return messages
 
@@ -86,9 +71,26 @@ class AgentLoop:
             return f"Error saved to artifacts/errors/{error_file.name}", False
 
     def _offload_large_output(self, content: str, tool_name: str) -> str:
-        # fs_read and fs_write: never offload (can be re-run, confirmations are small)
-        if tool_name in ["fs_read", "fs_write"]:
+        # C1 variant: disable all offloading to test token growth
+        # This will cause context explosion and likely hit rate limits
+        # That failure IS the point - demonstrates need for filesystem memory
+        if self.disable_offload:
             return content
+
+        # fs_write: confirmations are small, never offload
+        if tool_name == "fs_write":
+            return content
+
+        # fs_read: offload large files to prevent context explosion
+        # Keep small files inline for agent to reason about
+        if tool_name == "fs_read" and len(content) > self.large_output_threshold:
+            artifact_file = WORKSPACE / "artifacts" / "previews" / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_fs_read_output.txt"
+            artifact_file.write_text(content)
+            self._add_to_registry(artifact_file, tool_name, content)
+            # Provide head preview so agent knows the structure
+            lines = content.split('\n')
+            preview = '\n'.join(lines[:10])
+            return f"[File too large ({len(lines)} lines). First 10 lines:]\n{preview}\n\n[Full content saved to: artifacts/previews/{artifact_file.name}]"
 
         # shell_run: always offload to logs/ (execution output, not preview)
         if tool_name == "shell_run":
@@ -212,107 +214,3 @@ class AgentLoop:
             return quality.get("pass", False)
         except Exception:
             return False
-
-    async def run(self) -> dict:
-        state_snapshot = self._build_state_snapshot()
-        build_msg = self._build_messages_with_fresh_uuid if self.variant == "B1" else self._build_messages
-        messages = build_msg(state_snapshot, step=0)
-
-        for step in range(self.max_steps):
-            prompt_cache_key = get_prompt_cache_key(self.variant)
-
-            msg, metrics = await self.wrapper.call(
-                messages=messages,
-                tools=TOOL_SCHEMAS,
-                prompt_cache_key=prompt_cache_key,
-                variant_id=self.variant,
-                task_id="data_cleaning",
-                step_idx=step,
-            )
-
-            self.metrics.append(metrics)
-            self._update_trace(step, "model_call", {
-                "ttft_ms": metrics.ttft_ms,
-                "input_tokens": metrics.input_tokens,
-                "output_tokens": metrics.output_tokens,
-                "cached_tokens": metrics.cached_tokens,
-            })
-
-            content = msg.content or ""
-            task_signaled_complete = False
-
-            if msg.tool_calls:
-                for tool_call in msg.tool_calls:
-                    tool_name = tool_call.function.name
-                    try:
-                        arguments = json.loads(tool_call.function.arguments)
-                    except json.JSONDecodeError:
-                        arguments = {}
-
-                    result, success = self._execute_tool(tool_name, arguments)
-                    result = self._offload_large_output(result, tool_name)
-
-                    if tool_name == "task_complete":
-                        task_signaled_complete = True
-                        print(f"[COMPLETE] Agent signaled task completion at step {step + 1}")
-                        self._update_trace(step, "task_complete_signaled", {
-                            "success": True,
-                            "method": "tool_call"
-                        })
-
-                    metrics.tool_name = tool_name
-                    metrics.tool_success = success
-
-                    self._update_trace(step, "tool_call", {
-                        "tool_name": tool_name,
-                        "arguments": arguments,
-                        "success": success,
-                        "result_preview": result[:200],
-                    })
-
-                    messages.append({
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [tool_call.model_dump()]
-                    })
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": result
-                    })
-
-            else:
-                messages.append({"role": "assistant", "content": content})
-
-            if task_signaled_complete:
-                print(f"[SUCCESS] Agent terminated at step {step + 1} (task_complete called)")
-                break
-
-            if self._check_success():
-                print(f"[SUCCESS] Task validated at step {step + 1} (quality.json passed)")
-                self._update_trace(step, "task_complete", {"success": True})
-                break
-
-            state_snapshot = self._build_state_snapshot(content)
-            messages = build_msg(state_snapshot, step=step+1)
-            messages.append({"role": "assistant", "content": f"Previous response: {content}"})
-
-        total_cost = sum(m.estimated_cost_usd for m in self.metrics)
-        avg_ttft = sum(m.ttft_ms for m in self.metrics[1:]) / max(1, len(self.metrics) - 1)
-        cache_hit_ratio = sum(m.cached_tokens for m in self.metrics) / max(1, sum(m.input_tokens for m in self.metrics))
-
-        return {
-            "variant": self.variant,
-            "total_steps": len(self.metrics),
-            "success": self._check_success(),
-            "total_cost_usd": round(total_cost, 4),
-            "avg_ttft_ms": round(avg_ttft, 2),
-            "max_input_tokens": max(m.input_tokens for m in self.metrics),
-            "total_input_tokens": sum(m.input_tokens for m in self.metrics),
-            "cache_hit_ratio": round(cache_hit_ratio, 3),
-        }
-
-
-async def run_agent_variant(variant: str = "A1", max_steps: int = 20, wrapper: OpenAIStreamWrapper | None = None) -> dict:
-    agent = AgentLoop(variant=variant, max_steps=max_steps, wrapper=wrapper)
-    return await agent.run()
