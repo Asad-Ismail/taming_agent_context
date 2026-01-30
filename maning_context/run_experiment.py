@@ -10,26 +10,18 @@ from agent_loop import AgentLoop
 from tools import TOOL_SCHEMAS
 from metrics import log_step_metrics, write_run_summary, print_summary
 from openai_wrapper import OpenAIStreamWrapper
-from vllm_wrapper import VLLMStreamWrapper
 from config import load_config
+from constitution import FROZEN_PREFIX
 
 WORKSPACE = Path(__file__).parent / "workspace"
 
 
-def create_wrapper(backend: str, config: dict, vllm_url: str = None):
-    """Factory function to create LLM wrapper based on backend."""
-    if backend == "openai":
-        return OpenAIStreamWrapper(
-            model=config["model"]["name"],
-            tier=config["model"]["tier"]
-        )
-    elif backend == "vllm":
-        return VLLMStreamWrapper(
-            model=config["model"]["name"],
-            base_url=vllm_url or config.get("vllm", {}).get("base_url", "http://localhost:8000/v1")
-        )
-    else:
-        raise ValueError(f"Unknown backend: {backend}. Choose from: openai, vllm")
+def create_wrapper(config: dict):
+    """Create OpenAI LLM wrapper."""
+    return OpenAIStreamWrapper(
+        model=config["model"]["name"],
+        tier=config["model"].get("tier", "flex")
+    )
 
 
 async def main():
@@ -42,10 +34,6 @@ async def main():
                         help="Variant identifier (overrides config)")
     parser.add_argument("--max-steps", type=int, default=None,
                         help="Maximum steps (overrides config)")
-    parser.add_argument("--backend", choices=["openai", "vllm"], default=None,
-                        help="LLM backend to use (openai or vllm)")
-    parser.add_argument("--vllm-url", default=None,
-                        help="vLLM server URL (e.g., http://localhost:8000/v1)")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -54,21 +42,27 @@ async def main():
     tier = args.tier or config["model"].get("tier", "flex")
     variant = args.variant or config["experiment"]["variant"]
     max_steps = args.max_steps or config["experiment"]["max_steps"]
-    backend = args.backend or config["model"].get("backend", "openai")
-    vllm_url = args.vllm_url
     model_name = config["model"]["name"]
     threshold = config["token_optimization"]["large_output_threshold"]
 
-    print(f"Initializing with {backend} backend, {tier} tier, variant {variant}...")
-    if backend == "vllm":
-        url = vllm_url or config.get("vllm", {}).get("base_url", "http://localhost:8000/v1")
-        print(f"vLLM URL: {url}")
+    print(f"Initializing with OpenAI, {tier} tier, variant {variant}...")
     print(f"Model: {model_name}, Threshold: {threshold} chars")
 
-    wrapper = create_wrapper(backend, config, vllm_url)
+    wrapper = create_wrapper(config)
 
     print("Creating workspace...")
     create_workspace()
+
+    # Clean up previous run artifacts to ensure fresh start
+    cleanup_paths = [
+        WORKSPACE / "reports" / "quality.json",
+        WORKSPACE / "data" / "clean.csv",
+        WORKSPACE / "scripts" / "clean.py",
+    ]
+    for p in cleanup_paths:
+        if p.exists():
+            p.unlink()
+            print(f"  Cleaned: {p.name}")
 
     print("Downloading and preparing UCI dataset...")
     download_data()
@@ -83,8 +77,27 @@ async def main():
     print(f"\nStarting {variant} experiment with {tier} tier...")
     print("=" * 60)
 
+    # C1 variant: disable offloading to test token growth
+    disable_offload = (variant == "C1")
+    if disable_offload:
+        print("[C1] Offloading DISABLED - expecting token growth")
+
     agent = AgentLoop(variant=variant, max_steps=max_steps, wrapper=wrapper,
-                     large_output_threshold=threshold)
+                     large_output_threshold=threshold, disable_offload=disable_offload)
+
+    # E2 variant: uses system prompt without recitation instructions
+    if variant == "E2":
+        print("[E2] Recitation instructions REMOVED from system prompt - agent won't be told to maintain todo.md")
+
+    # D1/D2 variants: Tool masking experiment
+    # D1 = Antipattern: dynamically filter tools (breaks cache)
+    # D2 = Manus pattern: stable tools + tool_choice constraint (preserves cache)
+    use_dynamic_tools = (variant == "D1")
+    use_tool_choice_masking = (variant == "D2")
+    if use_dynamic_tools:
+        print("[D1] Dynamic tool filtering ENABLED - tools change based on state (breaks cache)")
+    if use_tool_choice_masking:
+        print("[D2] Tool choice masking ENABLED - stable tools + tool_choice constraint (Manus pattern)")
 
     # Initialize messages
     state_snapshot = agent._build_state_snapshot()
@@ -99,16 +112,16 @@ async def main():
         task_signaled_complete = False
 
         # For B1 variant, regenerate system message with fresh UUID each step
+        # Per blog findings: UUID at system START breaks cache (0% hit rate)
+        # We use FROZEN_PREFIX directly to avoid double UUID from get_prefix()
         if variant == "B1":
             import uuid
             run_uuid = str(uuid.uuid4())
-            base_prefix = agent._build_messages(state_snapshot)[0]["content"]
-            system_msg = f"RunID: {run_uuid}\n\n" + base_prefix
-            print(f"[B1 DEBUG] Step {step + 1}: System prefix starts with RunID: {run_uuid[:8]}...")
-            print(f"[B1 DEBUG] Full prefix length: {len(system_msg)} chars")
+            # Use FROZEN_PREFIX directly, not _build_messages() which may add its own UUID
+            system_msg = f"RunID: {run_uuid}\n\n{FROZEN_PREFIX}"
 
             if messages:
-                # Replace system message in existing messages
+                # Replace system message - this changes prefix, breaking cache
                 messages[0] = {"role": "system", "content": system_msg}
             else:
                 # First step - create initial messages
@@ -121,9 +134,31 @@ async def main():
             print(f"\nTask completed successfully at step {step}!")
             break
 
+        # D1/D2: Tool masking logic
+        # Simple state machine: after writing clean.py, only allow shell_run/fs_read/task_complete
+        current_tools = TOOL_SCHEMAS
+        current_tool_choice = "auto"
+        
+        if use_dynamic_tools:
+            # D1 Antipattern: Filter tools based on state (changes tool schema = breaks cache)
+            clean_script_exists = (Path(__file__).parent / "workspace" / "scripts" / "clean.py").exists()
+            if clean_script_exists:
+                # Only allow execution tools after script is written
+                allowed_tools = {"shell_run", "fs_read", "task_complete"}
+                current_tools = [t for t in TOOL_SCHEMAS if t["function"]["name"] in allowed_tools]
+        
+        if use_tool_choice_masking:
+            # D2 Manus Pattern: Keep all tools, but use tool_choice to guide selection
+            # This doesn't break cache since tools stay stable
+            quality_json = Path(__file__).parent / "workspace" / "reports" / "quality.json"
+            if quality_json.exists():
+                # After validation exists, strongly suggest task_complete
+                current_tool_choice = {"type": "function", "function": {"name": "task_complete"}}
+
         msg, metrics = await agent.wrapper.call(
             messages=messages,
-            tools=TOOL_SCHEMAS,
+            tools=current_tools,
+            tool_choice=current_tool_choice,
             prompt_cache_key=f"task2-{variant[0]}",
             variant_id=variant,
             task_id="data_cleaning",
