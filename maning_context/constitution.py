@@ -2,29 +2,6 @@
 from typing import Literal
 
 
-TODO_TEMPLATE = """# Remaining Goals
-
-{goals}
-
-Constraints:
-- Preserve row order when cleaning data
-- Use median imputation for missing values
-- Clip values to specified ranges
-- Add income_per_age column at the end
-- Validate output before marking complete
-"""
-
-INDEX_TEMPLATE = """# File Registry
-
-{files}
-"""
-
-PROGRESS_TEMPLATE = """# Progress Log
-
-{achievements}
-"""
-
-
 FROZEN_PREFIX = """You are an autonomous data cleaning agent with access to file system tools. Your task is to clean a dataset according to precise, deterministic specifications.
 
 ## Task Description
@@ -126,19 +103,43 @@ This script will check workspace/data/clean.csv and generate workspace/reports/q
 
 Success condition: The quality.json file must contain {"pass": true}
 
+## Goal Tracking (Critical)
+
+You MUST maintain a todo.md file to track your progress. This is essential for staying focused on the task:
+
+- At the START of each step, read todo.md to recall your goals
+- After COMPLETING any sub-task, update todo.md by checking off completed items
+- If you discover new sub-tasks, add them to todo.md
+- Keep todo.md concise - it's your working memory for the task
+
+Example todo.md format:
+```
+# Goals
+- [x] Read and understand input data
+- [x] Create cleaning script
+- [ ] Run cleaning script
+- [ ] Validate output
+- [ ] Complete task
+```
+
+This constant recitation of goals prevents you from drifting off-task in long sessions.
+
 ## Step-by-Step Workflow
 
 Follow this recommended approach to complete the task:
 
-1. Read todo.md to see your current goals and constraints
+1. Read todo.md to see your current goals, then UPDATE it with your plan
 2. Use fs_list to explore the workspace structure
 3. Use fs_read to examine the input data file workspace/data/raw.csv
-4. Create a Python script at workspace/scripts/clean.py that implements the cleaning logic
-5. Use shell_run with cmd="python scripts/clean.py" to execute your cleaning script
-6. Use shell_run with cmd="python scripts/validate.py" to validate your output
-7. Read workspace/reports/quality.json to check if validation passed
-8. If validation fails, fix the issues and re-run
-9. When validation passes with {"pass": true}, call the task_complete() tool to signal completion
+4. Update todo.md to check off exploration, add cleaning sub-tasks
+5. Create a Python script at workspace/scripts/clean.py that implements the cleaning logic
+6. Update todo.md to mark script creation complete
+7. Use shell_run with cmd="python scripts/clean.py" to execute your cleaning script
+8. Use shell_run with cmd="python scripts/validate.py" to validate your output
+9. Read workspace/reports/quality.json to check if validation passed
+10. Update todo.md with validation results
+11. If validation fails, fix the issues and re-run
+12. When validation passes with {"pass": true}, update todo.md to mark complete, then call task_complete()
 
 ## Recommended Implementation Approach
 
@@ -148,10 +149,10 @@ Option A - Using pandas:
 ```python
 import pandas as pd
 df = pd.read_csv('workspace/data/raw.csv')
-# Apply cleaning rules
-df['age'].fillna(df['age'].median(), inplace=True)
-df['income'].fillna(df['income'].median(), inplace=True)
-df['country'].fillna('Unknown', inplace=True)
+# Apply cleaning rules (pandas 2.x compatible - no inplace on column slices)
+df['age'] = df['age'].fillna(df['age'].median())
+df['income'] = df['income'].fillna(df['income'].median())
+df['country'] = df['country'].fillna('Unknown')
 df['age'] = df['age'].clip(0, 100)
 df['income'] = df['income'].clip(0, 300000)
 df['income_per_age'] = df['income'] / df['age'].apply(lambda x: max(x, 1))
@@ -196,13 +197,61 @@ Your task is complete when ALL of the following are true:
 IMPORTANT: When you have confirmed all success criteria are met, you MUST call the task_complete() tool to signal completion. This is the only way to properly end the task.
 
 Begin by reading todo.md to understand your current goals, then use fs_list to explore the workspace and fs_read to examine the data file.
+
+REMEMBER: Update todo.md after each major step to maintain focus. This recitation is critical for complex multi-step tasks.
 """
+
+# E2 variant: No recitation instructions - tests attention drift
+FROZEN_PREFIX_E2 = FROZEN_PREFIX.replace(
+    """## Goal Tracking (Critical)
+
+You MUST maintain a todo.md file to track your progress. This is essential for staying focused on the task:
+
+- At the START of each step, read todo.md to recall your goals
+- After COMPLETING any sub-task, update todo.md by checking off completed items
+- If you discover new sub-tasks, add them to todo.md
+- Keep todo.md concise - it's your working memory for the task
+
+Example todo.md format:
+```
+# Goals
+- [x] Read and understand input data
+- [x] Create cleaning script
+- [ ] Run cleaning script
+- [ ] Validate output
+- [ ] Complete task
+```
+
+This constant recitation of goals prevents you from drifting off-task in long sessions.
+
+""",
+    ""
+).replace(
+    "1. Read todo.md to see your current goals, then UPDATE it with your plan",
+    "1. Review the workspace structure"
+).replace(
+    "4. Update todo.md to check off exploration, add cleaning sub-tasks\n5. Create",
+    "4. Create"
+).replace(
+    "6. Update todo.md to mark script creation complete\n7. Use shell_run",
+    "5. Use shell_run"
+).replace(
+    "10. Update todo.md with validation results\n11. If validation fails",
+    "8. If validation fails"
+).replace(
+    "12. When validation passes with {\"pass\": true}, update todo.md to mark complete, then call task_complete()",
+    "9. When validation passes with {\"pass\": true}, call task_complete()"
+).replace(
+    "\n\nREMEMBER: Update todo.md after each major step to maintain focus. This recitation is critical for complex multi-step tasks.",
+    ""
+)
 
 
 def get_prefix(variant: Literal["A1", "B1", "C1", "E2", "F1", "F2", "D1", "D2"] = "A1") -> str:
-    if variant == "B1":
-        import uuid
-        return f"RunID: {uuid.uuid4()}\n\n" + FROZEN_PREFIX
+    # B1 variant UUID injection is handled in run_experiment.py, not here
+    # This ensures fresh UUID is generated each step, not once at message creation
+    if variant == "E2":
+        return FROZEN_PREFIX_E2  # No recitation instructions
     return FROZEN_PREFIX
 
 
