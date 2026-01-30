@@ -1,331 +1,109 @@
-# Manus Replication
+# Validating Manus Context Engineering Claims
 
-Implementation of Manus-style context engineering experiments for AI agents, based on [Context Engineering for AI Agents: Lessons from Building Manus](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus).
+I read the [Manus blog post](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus) and wanted to see if their claims actually hold up. Built a simple agent, ran ablations, measured what matters.
 
-## Overview
+## The Task
 
-This project experiments with techniques to optimize agent context management through:
+Agent cleans a 32K-row CSV (UCI Adult dataset): fill missing values, clip outliers, add a computed column, validate output. Takes 5-10 tool calls. Simple enough to complete reliably, complex enough to show cache/token effects.
 
-- **Stable Prefixes** - Enable KV-cache reuse with frozen system prompts
-- **Filesystem Memory** - Offload large outputs to files, reference by path
-- **Token Growth Control** - Measure and minimize context expansion across steps
-- **Error Evidence** - Preserve error outputs for recovery analysis
+## What I Found
 
-## Quick Start
+4 out of 6 claims checked out. 1 couldn't be tested, 1 doesn't apply to this task.
+
+| Claim | Verdict | What Happened |
+|-------|---------|---------------|
+| KV-cache matters | ✅ | 4x cost, 2.5x latency when broken |
+| Filesystem as memory | ✅ | 225K tokens → rate limit without it |
+| Mask tools, don't remove | ✅ | Changing tools mid-run breaks cache |
+| Recitation helps focus | ⚠️ | Overhead on short tasks, probably helps at 50+ steps |
+| Keep errors visible | ❌ | Couldn't test (task doesn't error reliably) |
+| Vary few-shot examples | — | Doesn't apply (single task, no repetitive subtasks to mimic) |
+
+## Results
+
+| Variant | Tests | Steps | OK? | Cache | Cost |
+|---------|-------|-------|-----|-------|------|
+| **A1** | Baseline | 8 | ✅ | 89% | $0.024 |
+| **B1** | Cache breaking | 15 | ❌ | 0% | $0.090 |
+| **C1** | No offloading | 5 | ❌ | — | — |
+| **D1** | Dynamic tools | 15 | ❌ | 86% | $0.066 |
+| **D2** | tool_choice masking | 8 | ✅ | 98% | $0.032 |
+| **E2** | No recitation | 4 | ✅ | 75% | $0.014 |
+
+## Reproduce It
 
 ```bash
-# Install dependencies (from repo root)
-uv sync
-
-# Run experiment
-cd maning_context
-uv run python run_experiment.py
-
-# Results will be in workspace/
-# - metrics/run_steps.csv - Per-step metrics
-# - metrics/run_summary.json - Aggregate results
-# - trace.jsonl - Full action/observation log
+cd maning_context && uv sync
 ```
 
-## Configuration
-
-Edit `config.yaml` to customize:
-
-```yaml
-agent:
-  model: "gpt-4o"
-  max_steps: 50
-
-workspace:
-  root: "./workspace"
-  data_file: "data/raw.csv"
-
-task:
-  description: "Clean the dataset and validate quality"
-```
-
-## Architecture
-
-### Core Components
-
-**agent_loop.py** - Main execution loop
-- Implements stable prefix pattern
-- Reconstructs state from filesystem each step
-- Enforces one decision iteration per turn
-
-**constitution.py** - System prompts and rules
-- Defines agent capabilities and constraints
-- Specifies tool usage patterns
-- Sets error handling protocols
-
-**tools.py** - Filesystem operations
-- `fs_read(path)` - Read file contents
-- `fs_write(path, content)` - Write file
-- `fs_list(dir)` - List directory contents
-- `fs_append(path, content)` - Append to file
-
-**metrics.py** - Performance tracking
-- TTFT (Time To First Token)
-- End-to-end latency
-- Cached vs prompt tokens
-- Per-step metrics
-
-**openai_wrapper.py** - OpenAI API client
-- Implements prompt caching with `prompt_cache_key`
-- Token usage tracking
-- Error handling and retries
-
-### Workspace Layout
-
-```
-workspace/
-├── data/
-│   └── raw.csv           # Input data
-├── scripts/
-│   ├── clean.py          # Generated cleaning script
-│   └── validate.py       # Generated validation script
-├── reports/
-│   └── quality.json      # Validation results
-├── artifacts/            # Offloaded outputs
-│   ├── errors/           # Error evidence
-│   └── previews/         # Large output previews
-├── metrics/
-│   ├── run_steps.csv     # Per-step metrics
-│   └── run_summary.json  # Aggregate statistics
-├── todo.md               # Remaining goals (rewritten)
-├── index.md              # File registry
-├── progress.md           # Append-only achievements
-└── trace.jsonl           # Action/observation log
-```
-
-## Agent Protocol
-
-### Prompt Construction
-
-Each step prompt = Frozen PREFIX + STATE snapshot + last event excerpt + todo recitation
-
-**Frozen PREFIX** (stable for KV-cache):
-- System prompt
-- Tool definitions
-- Agent rules
-
-**STATE snapshot** (reconstructed from filesystem):
-- File registry (index.md)
-- Recent progress (progress.md)
-- Last N events from trace.jsonl
-
-**Recitation** (todo.md at prompt end):
-- Only remaining goals
-- Not completed tasks
-
-### Memory Strategy
-
-- **Large outputs** → `artifacts/previews/` (referenced by path)
-- **Errors** → `artifacts/errors/` (preserved for recovery)
-- **State** → Reconstructed from filesystem each step
-- **Progress** → Append-only `progress.md`
-
-### Error Handling
-
-- Full error output saved to `artifacts/errors/`
-- Error path referenced in next prompt (not hidden)
-- Agent must read error file to diagnose
-- Enables learning from failures
-
-## LLM Backends
-
-The experiment framework supports two LLM backends for comparing cached vs uncached inference:
-
-### OpenAI (Default)
-Cloud-based inference with prompt caching support.
-
-**Features:**
-- Prompt caching with KV-cache reuse
-- Token usage tracking (including cached tokens)
-- Cost estimation
-- Models: gpt-4o-mini, gpt-4o
-
-**Usage:**
+### A1: Baseline
+Stable prefix, file offloading, todo.md recitation. The "good" config.
 ```bash
-python run_experiment.py --backend openai --config config.yaml
+python run_experiment.py --variant A1
 ```
 
-**Config:**
-```yaml
-model:
-  name: "gpt-4o-mini"
-  backend: "openai"
-  tier: "flex"  # or "standard", "batch"
-```
-
-### vLLM (Local)
-Local inference using vLLM server with OpenAI-compatible API.
-
-**Features:**
-- No prompt caching (cached_tokens always 0)
-- Zero direct cost (local compute)
-- Enables comparison: cached (OpenAI) vs uncached (vLLM)
-- Models: Any local model (Llama, Qwen, etc.)
-
-**Usage:**
+### B1: Break the Cache  
+Fresh UUID at system prompt start each step. Cache goes to 0%.
 ```bash
-# Start vLLM server first
-python -m vllm.entrypoints.openai.api_server --model meta-llama/Llama-3.1-8B-Instruct
-
-# Run experiment
-python run_experiment.py --backend vllm --vllm-url http://localhost:8000/v1
+python run_experiment.py --variant B1
 ```
 
-**Config:**
-```yaml
-model:
-  name: "meta-llama/Llama-3.1-8B-Instruct"
-  backend: "vllm"
-
-vllm:
-  base_url: "http://localhost:8000/v1"
-```
-
-**Metrics Comparison:**
-| Metric | OpenAI | vLLM |
-|--------|--------|------|
-| cached_tokens | >0 | 0 |
-| estimated_cost_usd | >0 | 0 |
-| ttft_ms | Varies | Varies |
-
-This enables direct comparison of:
-- Cache hit rates
-- Performance with/without caching
-- Cost implications
-
-## Experiment Variants
-
-The codebase supports testing different configurations:
-
-### Baseline (A1)
-- Stable prefix + filesystem memory + recitation
-- Prompt caching enabled
-- Error evidence retained
-
-### Cache Collapse (B1)
-- Changing token in prefix each step
-- Measures KV-cache effectiveness
-
-### Token Growth (C1)
-- No output offloading to files
-- Measures context expansion rate
-
-### Attention Steering (E2)
-- No todo recitation at prompt end
-- Tests goal retention without reminder
-
-### Error Evidence (F1/F2)
-- F1: Keep error evidence in artifacts
-- F2: Hide errors from agent
-- Compares recovery rates
-
-### Tool Space (D1/D2)
-- D1: Stable tool definitions
-- D2: Dynamic tools per step
-- Tests tool-space stability impact
-
-## Metrics
-
-### Tracked Per Step
-
-- **step** - Step number
-- **ttft_ms** - Time to first token (cache effectiveness)
-- **latency_ms** - End-to-end latency
-- **prompt_tokens** - Total prompt tokens
-- **cached_tokens** - Tokens served from cache
-- **completion_tokens** - Generated tokens
-- **total_tokens** - Prompt + completion
-- **cache_hit_rate** - cached_tokens / prompt_tokens
-
-### Summary Metrics
-
-- Total steps
-- Total tokens
-- Average TTFT
-- Average cache hit rate
-- Token growth rate (tokens per step)
-
-## Key Principles
-
-### Stable Prefix Pattern
-- Freeze system prompt and tool definitions
-- No timestamps, UUIDs, or changing values in prefix
-- Use consistent `prompt_cache_key` across steps
-- Ensure prefix >= 1024 tokens for cache activation
-
-### Filesystem Memory
-- Offload large outputs to files
-- Reference by path only in prompts
-- Reconstruct state from files each step
-- Never include full file contents in prompt unless needed
-
-### Error Transparency
-- Never hide errors from agent
-- Preserve full error output in artifacts
-- Reference error file path in prompt
-- Let agent diagnose and recover
-
-### Token Discipline
-- Monitor `cached_tokens` vs `prompt_tokens`
-- Watch token growth across steps
-- Use deterministic templates for state
-- Avoid history leakage into prompts
-
-## Requirements
-
-- Python 3.12+
-- OpenAI API key with prompt caching support
-- UV package manager
-
-## Running Experiments
-
+### C1: No Offloading
+Large file reads stay in context. Blows up at step 5.
 ```bash
-# Basic run
-uv run python run_experiment.py
-
-# Check results
-cat workspace/metrics/run_summary.json
-
-# View trace
-cat workspace/trace.jsonl | jq
-
-# Analyze token usage
-cat workspace/metrics/run_steps.csv | column -t -s,
+python run_experiment.py --variant C1
 ```
 
-## Interpreting Results
+### D1: Dynamic Tool Filtering
+Remove tools based on state. Cache drops when schema changes.
+```bash
+python run_experiment.py --variant D1
+```
 
-### High Cache Hit Rate (>80%)
-- Stable prefix working well
-- KV-cache effectively reusing computation
-- Lower latency and cost
+### D2: Tool Choice Masking  
+Keep all tools, use `tool_choice` to constrain. Cache stays stable.
+```bash
+python run_experiment.py --variant D2
+```
 
-### Low Cache Hit Rate (<50%)
-- Prefix instability detected
-- Check for changing values in system prompt
-- Verify `prompt_cache_key` consistency
+### E2: No Recitation
+Remove todo.md instructions. Agent finishes faster on simple tasks.
+```bash
+python run_experiment.py --variant E2
+```
 
-### Token Growth >100/step
-- Context expanding too fast
-- History leaking into prompts
-- Check state reconstruction logic
+## What the Numbers Show
 
-### Frequent Errors
-- Review `workspace/artifacts/errors/`
-- Check tool error messages
-- Validate tool implementations
+**B1 (cache breaking):** Every step pays full prefill cost. 0% cache hit, 4x the cost, agent drifted and failed.
 
-## References
+**C1 (no offloading):** Reading a 32K row CSV dumped 200K+ tokens into messages. Hit rate limit immediately.
 
-- [Manus Blog Post](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus)
-- [OpenAI Prompt Caching](https://platform.openai.com/docs/api-reference/prompt-caching)
-- [Anthropic Context Engineering](https://www.anthropic.com/engineering/context-engineering-for-ai-agents)
+**D1 vs D2 (tool masking):** When D1 changed the tool list at step 6, cached tokens dropped from 12K to 1.6K. D2 kept tools stable and used `tool_choice`—cache stayed at 14K.
 
-## License
+**E2 (no recitation):** Finished in 4 steps vs 8. For an 8-step task, recitation is overhead. For Manus's 50-step average, it probably prevents drift.
 
-MIT
+## Gotchas I Hit
+
+**Double API calls break your metrics.** If you stream for TTFT then call again for the response, the second call hits the first's cache. B1 showed 95% cache hit until I fixed this.
+
+**Tool schemas are part of the prefix.** Even putting UUID at system message *end* breaks cache when you have tools—they serialize after system in the token stream.
+
+## Couldn't Test With this test case
+
+**Error evidence:** Task doesn't fail in recoverable ways often enough.
+
+**Real logit masking:** OpenAI doesn't expose this. `tool_choice` is close enough for the cache test.
+
+## Doesn't Apply Here
+
+**Few-shot variation:** Manus uses this to prevent pattern mimicry when processing many similar items (like 20 resumes). Our task is a single pipeline—no repetitive subtasks where the agent might copy its own rhythm.
+
+## Bottom Line
+
+Cache stability and file offloading are real and measurable. Breaking either one tanks performance. Recitation matters more as tasks get longer. The Manus techniques work—the hard part is wiring them up cleanly.
+
+## Links
+
+- [Manus Blog](https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus)
+- [OpenAI Prompt Caching](https://platform.openai.com/docs/guides/prompt-caching)
+- [My Prompt Caching Post](https://asad-ismail.github.io/posts/prompt_caching/)
