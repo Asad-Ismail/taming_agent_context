@@ -4,7 +4,6 @@ import os
 from dataclasses import dataclass
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
-from llm_wrapper import LLMWrapper
 
 load_dotenv()
 
@@ -41,9 +40,9 @@ class StepMetrics:
     prompt_cache_key: str
 
 
-class OpenAIStreamWrapper(LLMWrapper):
+class OpenAIStreamWrapper:
     def __init__(self, model: str = "gpt-4o-mini", tier: str = "flex"):
-        super().__init__(model)
+        self.model = model
         self.tier = tier
 
         headers = {}
@@ -63,46 +62,31 @@ class OpenAIStreamWrapper(LLMWrapper):
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
+        tool_choice: str | dict = "auto",
         prompt_cache_key: str = "task2-A",
         variant_id: str = "A1",
         task_id: str = "data_cleaning",
         step_idx: int = 0,
     ) -> tuple[dict, StepMetrics]:
         start_time = time.time()
-        ttft_ms = 0.0
-        chunks = []
-        first_chunk = True
 
+        # Single non-streaming call - TTFT = E2E for non-streaming
+        # This gives accurate cache metrics without double-call pollution
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             tools=tools,
+            tool_choice=tool_choice,
             temperature=0.1,
-            stream=True,
             extra_headers={"prompt_cache_key": prompt_cache_key},
         )
-
-        async for chunk in response:
-            if first_chunk:
-                ttft_ms = (time.time() - start_time) * 1000
-                first_chunk = False
-
-            if chunk.choices:
-                delta = chunk.choices[0].delta
-                if hasattr(delta, "content") and delta.content:
-                    chunks.append(delta.content)
 
         e2e_ms = (time.time() - start_time) * 1000
+        ttft_ms = e2e_ms  # For non-streaming, TTFT = E2E
 
-        non_stream_response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            tools=tools,
-            temperature=0.1,
-            extra_headers={"prompt_cache_key": prompt_cache_key},
-        )
+        usage = response.usage
+        msg = response.choices[0].message
 
-        usage = non_stream_response.usage
         input_tokens = usage.prompt_tokens
         output_tokens = usage.completion_tokens
 
@@ -121,7 +105,6 @@ class OpenAIStreamWrapper(LLMWrapper):
             output_tokens * tier_pricing["output"]
         ) / 1e6
 
-        msg = non_stream_response.choices[0].message
         tool_name = None
         if msg.tool_calls:
             tool_name = msg.tool_calls[0].function.name
